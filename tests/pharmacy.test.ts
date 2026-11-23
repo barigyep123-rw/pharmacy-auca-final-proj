@@ -8,11 +8,13 @@ import {
   createDrug,
   createPrescription,
   createPurchaseOrder,
+  createSupplier,
   deleteDrug,
   dispensePrescription,
   getDashboard,
   listDrugs,
   listPurchaseOrders,
+  listSupplierNames,
   receivePurchaseOrder,
   recordSale,
   staffByEmail,
@@ -212,4 +214,41 @@ test("roles stay inside their counters, and a drug with history cannot be remove
   });
   await deleteDrug(amina, created.id);
   assert.equal((await listDrugs()).some((item) => item.sku === "CHX-02"), false);
+});
+
+test("supplier names come from the shelf, orders, and names saved on their own", async () => {
+  const keeper = await staffByEmail(staffEmails.stockKeeper);
+  const jean = await staffByEmail(staffEmails.pharmacist);
+  const names = await listSupplierNames();
+  assert.ok(names.includes("Kigali Pharma Wholesale"));
+  assert.ok(names.includes("National Medical Store"));
+  assert.ok(names.includes("Rwanda Medical Supply"));
+
+  const zinc = await drug("ZINC-20");
+  await createPurchaseOrder(keeper, {
+    supplierName: "Nyagatare Depot",
+    notes: "",
+    items: [{ drugId: zinc.id, quantity: 2, unitCost: 10, expiryDate: "", batchNumber: "" }],
+  });
+  assert.ok((await listSupplierNames()).includes("Nyagatare Depot"));
+
+  const created = await createSupplier(keeper, "  Butare   Meds  ");
+  assert.equal(created.created, true);
+  assert.equal(created.name, "Butare Meds");
+  const again = await createSupplier(keeper, "butare meds");
+  assert.equal(again.created, false);
+  assert.equal(again.name, "Butare Meds");
+  const listed = await listSupplierNames();
+  assert.equal(listed.filter((name) => name.toLowerCase() === "butare meds").length, 1);
+  assert.ok(listed.indexOf("Butare Meds") < listed.indexOf("Kigali Pharma Wholesale"));
+
+  await assert.rejects(
+    () => createSupplier(jean, "Another Wholesale"),
+    (error: unknown) => error instanceof ApiError && error.status === 403,
+  );
+  await assert.rejects(
+    () => createSupplier(keeper, " a "),
+    (error: unknown) => error instanceof ApiError && error.status === 400,
+  );
+  assert.equal((await listSupplierNames()).includes("Another Wholesale"), false);
 });

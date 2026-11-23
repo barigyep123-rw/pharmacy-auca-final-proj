@@ -592,6 +592,55 @@ export async function receivePurchaseOrder(user: Staff, id: number) {
   });
 }
 
+export async function listSupplierNames(): Promise<string[]> {
+  const rows = await sql<{ name: string }>(
+    `select name
+     from (
+       select distinct on (lower(btrim(name))) btrim(name) as name
+       from (
+         select name, 0 as source_rank from suppliers
+         union all
+         select supplier, 1 from drugs
+         union all
+         select supplier_name, 2 from purchase_orders
+       ) raw
+       where btrim(name) <> ''
+       order by lower(btrim(name)), source_rank, btrim(name)
+     ) deduped
+     order by lower(name), name`,
+  );
+  return rows.map((row) => text(row.name));
+}
+
+export async function createSupplier(user: Staff, name: string): Promise<{ name: string; created: boolean }> {
+  assertAccess(user.role, "orders");
+  const cleaned = name.trim().replace(/\s+/g, " ");
+  if (cleaned.length < 2) throw new ApiError(400, "Enter the supplier.");
+  if (cleaned.length > 80) throw new ApiError(400, "That supplier name is too long.");
+
+  const [existing] = await sql<{ name: string }>(
+    `select name from suppliers where lower(name) = lower($1) limit 1`,
+    [cleaned],
+  );
+  if (existing) return { name: text(existing.name), created: false };
+
+  try {
+    const [row] = await sql<{ name: string }>(
+      `insert into suppliers (name) values ($1) returning name`,
+      [cleaned],
+    );
+    return { name: text(row.name), created: true };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const [again] = await sql<{ name: string }>(
+      `select name from suppliers where lower(name) = lower($1) limit 1`,
+      [cleaned],
+    );
+    if (!again) throw error;
+    return { name: text(again.name), created: false };
+  }
+}
+
 export async function cancelPurchaseOrder(user: Staff, id: number) {
   assertAccess(user.role, "orders");
   const [row] = await sql<{ id: number }>(

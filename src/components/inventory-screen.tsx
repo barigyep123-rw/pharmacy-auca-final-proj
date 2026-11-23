@@ -8,6 +8,7 @@ import { categorySuggestions, drugForms, suggestedOrderQty, wholeNumber } from "
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
 import type { Drug, Movement, PurchaseOrder } from "@/lib/types";
 import { useStaff } from "./session";
+import { mergeSupplierNames, SupplierField } from "./supplier-field";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -106,6 +107,25 @@ function selectClass() {
   return "h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm";
 }
 
+async function readInventory(includeOrders: boolean) {
+  const [catalog, purchase, saved] = await Promise.all([
+    api<{ drugs: Drug[] }>("/api/drugs"),
+    includeOrders
+      ? api<{ orders: PurchaseOrder[] }>("/api/purchase-orders")
+      : Promise.resolve({ orders: [] as PurchaseOrder[] }),
+    api<{ suppliers: string[] }>("/api/suppliers").catch(() => ({ suppliers: [] as string[] })),
+  ]);
+  return {
+    drugs: catalog.drugs,
+    orders: purchase.orders,
+    suppliers: mergeSupplierNames([
+      ...saved.suppliers,
+      ...catalog.drugs.map((drug) => drug.supplier),
+      ...purchase.orders.map((order) => order.supplierName),
+    ]),
+  };
+}
+
 export function InventoryScreen() {
   const user = useStaff();
   const manageOrders = user ? can(user.role, "orders") : false;
@@ -119,6 +139,7 @@ export function InventoryScreen() {
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [editing, setEditing] = useState<Drug | null | undefined>(undefined);
   const [ordering, setOrdering] = useState<OrderLine[] | null>(null);
+  const [suppliers, setSuppliers] = useState<string[]>([]);
   const [supplierName, setSupplierName] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
@@ -126,25 +147,25 @@ export function InventoryScreen() {
   const [pending, setPending] = useState(false);
 
   async function load() {
-    const catalog = await api<{ drugs: Drug[] }>("/api/drugs");
-    setDrugs(catalog.drugs);
-    if (!manageOrders) {
-      setOrders([]);
-      return;
-    }
-    const purchase = await api<{ orders: PurchaseOrder[] }>("/api/purchase-orders");
-    setOrders(purchase.orders);
+    const next = await readInventory(manageOrders);
+    setDrugs(next.drugs);
+    setOrders(next.orders);
+    setSuppliers(next.suppliers);
+  }
+
+  function rememberSupplier(name: string) {
+    setSuppliers((current) => mergeSupplierNames([...current, name]));
   }
 
   useEffect(() => {
     if (!user) return;
     let cancel = false;
-    const orders = manageOrders ? api<{ orders: PurchaseOrder[] }>("/api/purchase-orders") : Promise.resolve({ orders: [] });
-    Promise.all([api<{ drugs: Drug[] }>("/api/drugs"), orders])
-      .then(([catalog, purchase]) => {
+    readInventory(manageOrders)
+      .then((next) => {
         if (cancel) return;
-        setDrugs(catalog.drugs);
-        setOrders(purchase.orders);
+        setDrugs(next.drugs);
+        setOrders(next.orders);
+        setSuppliers(next.suppliers);
       })
       .catch((caught: unknown) => {
         if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load inventory.");
@@ -168,7 +189,6 @@ export function InventoryScreen() {
   }, [drugs, search, shelfFilter]);
 
   const visibleOrders = (orders ?? []).filter((order) => orderFilter === "all" || order.status === orderFilter);
-  const suppliers = [...new Set((drugs ?? []).map((drug) => drug.supplier).filter(Boolean))].sort();
 
   function startReorder(drug: Drug) {
     setFormError(null);
@@ -277,8 +297,11 @@ export function InventoryScreen() {
         key={editing === undefined ? "closed" : editing ? String(editing.id) : "new"}
         open={editing !== undefined}
         drug={editing === undefined ? null : editing}
+        suppliers={suppliers}
+        canCreateSupplier={manageOrders}
         error={formError}
         pending={pending}
+        onSupplierCreated={rememberSupplier}
         onClose={() => setEditing(undefined)}
         onSubmit={async (draft) => {
           setPending(true);
@@ -329,11 +352,13 @@ export function InventoryScreen() {
         lines={ordering}
         drugs={drugs}
         suppliers={suppliers}
+        canCreateSupplier={manageOrders}
         supplierName={supplierName}
         notes={orderNotes}
         error={formError}
         pending={pending}
         onSupplier={setSupplierName}
+        onSupplierCreated={rememberSupplier}
         onNotes={setOrderNotes}
         onLines={setOrdering}
         onClose={() => setOrdering(null)}
@@ -601,15 +626,21 @@ function Orders({
 function DrugDialog({
   drug,
   open,
+  suppliers,
+  canCreateSupplier,
   error,
   pending,
+  onSupplierCreated,
   onClose,
   onSubmit,
 }: {
   drug: Drug | null;
   open: boolean;
+  suppliers: string[];
+  canCreateSupplier: boolean;
   error: string | null;
   pending: boolean;
+  onSupplierCreated: (name: string) => void;
   onClose: () => void;
   onSubmit: (draft: DrugDraft) => void;
 }) {
@@ -715,10 +746,14 @@ function DrugDialog({
             <span className="text-sm font-medium">Batch</span>
             <Input value={draft.batchNumber} onChange={(event) => set("batchNumber", event.target.value)} />
           </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Usual supplier</span>
-            <Input value={draft.supplier} onChange={(event) => set("supplier", event.target.value)} />
-          </label>
+          <SupplierField
+            label="Usual supplier"
+            value={draft.supplier}
+            suppliers={suppliers}
+            canCreate={canCreateSupplier}
+            onChange={(value) => set("supplier", value)}
+            onCreated={onSupplierCreated}
+          />
           {movements.length > 0 ? (
             <div className="sm:col-span-2">
               <p className="mb-2 text-sm font-medium">Recent movements</p>
@@ -869,11 +904,13 @@ function OrderDialog({
   lines,
   drugs,
   suppliers,
+  canCreateSupplier,
   supplierName,
   notes,
   error,
   pending,
   onSupplier,
+  onSupplierCreated,
   onNotes,
   onLines,
   onClose,
@@ -882,11 +919,13 @@ function OrderDialog({
   lines: OrderLine[] | null;
   drugs: Drug[];
   suppliers: string[];
+  canCreateSupplier: boolean;
   supplierName: string;
   notes: string;
   error: string | null;
   pending: boolean;
   onSupplier: (value: string) => void;
+  onSupplierCreated: (name: string) => void;
   onNotes: (value: string) => void;
   onLines: (lines: OrderLine[] | null) => void;
   onClose: () => void;
@@ -910,13 +949,15 @@ function OrderDialog({
             }}
           >
             {error ? <Notice>{error}</Notice> : null}
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Supplier</span>
-              <Input list="suppliers" value={supplierName} onChange={(event) => onSupplier(event.target.value)} required />
-              <datalist id="suppliers">
-                {suppliers.map((supplier) => <option key={supplier} value={supplier} />)}
-              </datalist>
-            </label>
+            <SupplierField
+              label="Supplier"
+              value={supplierName}
+              suppliers={suppliers}
+              canCreate={canCreateSupplier}
+              required
+              onChange={onSupplier}
+              onCreated={onSupplierCreated}
+            />
             {lines.map((line, index) => (
               <div key={line.key} className="grid gap-2 rounded-xl border border-line p-3 sm:grid-cols-2">
                 <DrugSearch

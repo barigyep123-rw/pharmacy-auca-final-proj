@@ -69,6 +69,15 @@ export const purchaseOrderSchema = z.object({
   items: z.array(orderLine).min(1, "Add at least one drug.").max(20),
 });
 
+export const supplierSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Enter the supplier.")
+    .max(80, "That supplier name is too long.")
+    .transform((value) => value.replace(/\s+/g, " ")),
+});
+
 const email = z
   .string()
   .trim()

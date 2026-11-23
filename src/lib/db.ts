@@ -159,6 +159,7 @@ export async function resetAndSeed() {
       purchase_orders,
       sessions,
       drugs,
+      suppliers,
       users
     restart identity cascade`,
   );
