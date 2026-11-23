@@ -1,3 +1,4 @@
+import { assertAccess } from "@/lib/access";
 import { requireUser } from "@/lib/auth";
 import { fail, json, readJson, takeId } from "@/lib/http";
 import { deleteDrug, getDrug, updateDrug } from "@/lib/pharmacy";
@@ -18,6 +19,7 @@ export async function GET(_request: Request, context: Context) {
 export async function PATCH(request: Request, context: Context) {
   try {
     const user = await requireUser();
+    assertAccess(user.role, "inventory");
     const { id } = await context.params;
     const drug = await updateDrug(user, takeId(id), parseBody(drugUpdateSchema, await readJson(request)));
     return json({ drug });
@@ -29,6 +31,7 @@ export async function PATCH(request: Request, context: Context) {
 export async function DELETE(_request: Request, context: Context) {
   try {
     const user = await requireUser();
+    assertAccess(user.role, "deleteDrug");
     const { id } = await context.params;
     await deleteDrug(user, takeId(id));
     return json({ ok: true });

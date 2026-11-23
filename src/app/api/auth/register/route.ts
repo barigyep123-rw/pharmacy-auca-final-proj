@@ -5,8 +5,8 @@ import { parseBody, registerSchema } from "@/lib/validators";
 export async function POST(request: Request) {
   try {
     const body = parseBody(registerSchema, await readJson(request));
-    const user = await registerInitialAdmin(body);
-    return json({ user }, 201);
+    const result = await registerInitialAdmin(body);
+    return json(result, 201);
   } catch (error) {
     return fail(error);
   }

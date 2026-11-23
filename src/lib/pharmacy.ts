@@ -1,3 +1,4 @@
+import { assertAccess, can } from "./access";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
@@ -173,7 +174,8 @@ export async function getDrug(id: number): Promise<{ drug: Drug; movements: Move
   };
 }
 
-export async function createDrug(input: DrugInput): Promise<Drug> {
+export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
+  assertAccess(user.role, "inventory");
   try {
     const [row] = await sql<{ id: number }>(
       `insert into drugs (
@@ -204,10 +206,7 @@ export async function createDrug(input: DrugInput): Promise<Drug> {
 }
 
 export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput): Promise<Drug> {
-  const existing = await getDrug(id);
-  if (user.role !== "admin" && input.unitPrice !== existing.drug.unitPrice) {
-    throw new ApiError(403, "Only an admin can change the selling price.");
-  }
+  assertAccess(user.role, "inventory");
   try {
     const [row] = await sql<{ id: number }>(
       `update drugs set
@@ -240,9 +239,7 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
 }
 
 export async function deleteDrug(user: Staff, id: number) {
-  if (user.role !== "admin") {
-    throw new ApiError(403, "Only an admin can remove a drug from the catalog.");
-  }
+  assertAccess(user.role, "deleteDrug");
   const [refs] = await sql<{ n: number }>(
     `select (
       (select count(*) from sales where drug_id = $1) +
@@ -284,6 +281,7 @@ export async function listSales(): Promise<Sale[]> {
 }
 
 export async function recordSale(user: Staff, input: SaleInput) {
+  assertAccess(user.role, "sales");
   return withTransaction(async (query) => {
     const drug = await lockDrug(query, input.drugId);
     assertSellable(drug, input.quantity);
@@ -371,6 +369,7 @@ export async function listPrescriptions(): Promise<Prescription[]> {
 }
 
 export async function createPrescription(user: Staff, input: PrescriptionInput): Promise<Prescription> {
+  assertAccess(user.role, "prescriptions");
   assertUniqueDrugs(input.items.map((item) => item.drugId));
   const id = await withTransaction(async (query) => {
     const [header] = await query<{ id: number }>(
@@ -398,6 +397,7 @@ export async function createPrescription(user: Staff, input: PrescriptionInput):
 }
 
 export async function dispensePrescription(user: Staff, id: number) {
+  assertAccess(user.role, "prescriptions");
   await withTransaction(async (query) => {
     const [prescription] = await query<{ id: number; status: string }>(
       `select id, status from prescriptions where id = $1 for update`,
@@ -440,7 +440,8 @@ export async function dispensePrescription(user: Staff, id: number) {
   });
 }
 
-export async function cancelPrescription(id: number) {
+export async function cancelPrescription(user: Staff, id: number) {
+  assertAccess(user.role, "prescriptions");
   const [row] = await sql<{ id: number }>(
     `update prescriptions set status = 'cancelled'
      where id = $1 and status = 'pending'
@@ -517,6 +518,7 @@ export async function listPurchaseOrders(): Promise<PurchaseOrder[]> {
 }
 
 export async function createPurchaseOrder(user: Staff, input: PurchaseOrderInput): Promise<PurchaseOrder> {
+  assertAccess(user.role, "orders");
   assertUniqueDrugs(input.items.map((item) => item.drugId));
   const id = await withTransaction(async (query) => {
     for (const item of [...input.items].sort((a, b) => a.drugId - b.drugId)) {
@@ -543,6 +545,7 @@ export async function createPurchaseOrder(user: Staff, input: PurchaseOrderInput
 }
 
 export async function receivePurchaseOrder(user: Staff, id: number) {
+  assertAccess(user.role, "orders");
   await withTransaction(async (query) => {
     const [order] = await query<{ id: number; status: string; supplier_name: string }>(
       `select id, status, supplier_name from purchase_orders where id = $1 for update`,
@@ -589,7 +592,8 @@ export async function receivePurchaseOrder(user: Staff, id: number) {
   });
 }
 
-export async function cancelPurchaseOrder(id: number) {
+export async function cancelPurchaseOrder(user: Staff, id: number) {
+  assertAccess(user.role, "orders");
   const [row] = await sql<{ id: number }>(
     `update purchase_orders set status = 'cancelled'
      where id = $1 and status = 'ordered'
@@ -603,7 +607,7 @@ export async function cancelPurchaseOrder(id: number) {
   }
 }
 
-export async function getDashboard(): Promise<DashboardData> {
+export async function getDashboard(user: Staff): Promise<DashboardData> {
   const today = kigaliToday();
   const soon = addDays(today, 30);
   const [counts] = await sql<{
@@ -668,48 +672,63 @@ export async function getDashboard(): Promise<DashboardData> {
     [today],
   );
 
+  const inventory = can(user.role, "inventory");
+  const sales = can(user.role, "sales");
+  const prescriptions = can(user.role, "prescriptions");
+  const orders = can(user.role, "orders");
+
   return {
-    totalDrugs: num(counts?.drugs),
-    totalUnits: num(counts?.units),
-    lowStock: num(counts?.low),
-    expiringSoon: num(counts?.expiring),
-    expired: num(counts?.expired),
-    openOrderCount: num(openOrders?.orders),
-    openOrderUnits: num(openOrders?.units),
-    todaySales: { count: num(todaySales?.count), total: num(todaySales?.total) },
-    recentPrescriptionCount: num(recentRx?.recent),
-    pendingPrescriptions: num(recentRx?.pending),
-    attention: attention.map((row) => {
-      const drug = toDrug(row, today);
-      return {
-        id: drug.id,
-        name: drug.name,
-        strength: drug.strength,
-        quantity: drug.quantity,
-        reorderLevel: drug.reorderLevel,
-        expiryDate: drug.expiryDate,
-        onOrder: drug.onOrder,
-        low: drug.low,
-        expired: drug.expired,
-        expiringSoon: drug.expiringSoon,
-      };
-    }),
-    recentPrescriptions: recentPrescriptions.map((row) => ({
-      id: num(row.id),
-      patientName: text(row.patient_name),
-      status: text(row.status) as Prescription["status"],
-      createdAt: text(row.created_at),
-      itemCount: num(row.item_count),
-    })),
-    recentSales: recentSales.map((row) => ({
-      id: num(row.id),
-      drugName: text(row.drug_name),
-      strength: text(row.strength),
-      quantity: num(row.quantity),
-      total: num(row.total),
-      customerName: text(row.customer_name),
-      prescriptionId: row.prescription_id == null ? null : num(row.prescription_id),
-      createdAt: text(row.created_at),
-    })),
+    showInventory: inventory,
+    showSales: sales,
+    showPrescriptions: prescriptions,
+    showOrders: orders,
+    totalDrugs: inventory ? num(counts?.drugs) : 0,
+    totalUnits: inventory ? num(counts?.units) : 0,
+    lowStock: inventory ? num(counts?.low) : 0,
+    expiringSoon: inventory ? num(counts?.expiring) : 0,
+    expired: inventory ? num(counts?.expired) : 0,
+    openOrderCount: orders ? num(openOrders?.orders) : 0,
+    openOrderUnits: orders ? num(openOrders?.units) : 0,
+    todaySales: sales ? { count: num(todaySales?.count), total: num(todaySales?.total) } : { count: 0, total: 0 },
+    recentPrescriptionCount: prescriptions ? num(recentRx?.recent) : 0,
+    pendingPrescriptions: prescriptions ? num(recentRx?.pending) : 0,
+    attention: inventory
+      ? attention.map((row) => {
+          const drug = toDrug(row, today);
+          return {
+            id: drug.id,
+            name: drug.name,
+            strength: drug.strength,
+            quantity: drug.quantity,
+            reorderLevel: drug.reorderLevel,
+            expiryDate: drug.expiryDate,
+            onOrder: orders ? drug.onOrder : 0,
+            low: drug.low,
+            expired: drug.expired,
+            expiringSoon: drug.expiringSoon,
+          };
+        })
+      : [],
+    recentPrescriptions: prescriptions
+      ? recentPrescriptions.map((row) => ({
+          id: num(row.id),
+          patientName: text(row.patient_name),
+          status: text(row.status) as Prescription["status"],
+          createdAt: text(row.created_at),
+          itemCount: num(row.item_count),
+        }))
+      : [],
+    recentSales: sales
+      ? recentSales.map((row) => ({
+          id: num(row.id),
+          drugName: text(row.drug_name),
+          strength: text(row.strength),
+          quantity: num(row.quantity),
+          total: num(row.total),
+          customerName: text(row.customer_name),
+          prescriptionId: row.prescription_id == null ? null : num(row.prescription_id),
+          createdAt: text(row.created_at),
+        }))
+      : [],
   };
 }

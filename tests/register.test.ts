@@ -21,13 +21,18 @@ test("a fresh install has the shelf, no staff, and accepts one admin", async () 
     email: "Aline@Ubuzima.rw",
     password,
   });
-  assert.equal(created.role, "admin");
-  assert.equal(created.email, "aline@ubuzima.rw");
+  assert.equal(created.admin.role, "admin");
+  assert.equal(created.admin.email, "aline@ubuzima.rw");
+  assert.equal(created.demoStaff.length, 3);
+  assert.deepEqual(
+    created.demoStaff.map((person) => person.role).sort(),
+    ["cashier", "pharmacist", "stock_keeper"],
+  );
   assert.equal(await hasAdmin(), true);
 
   const [row] = await sql<{ phone: string; password_hash: string }>(
     "select phone, password_hash from users where email = $1",
-    [created.email],
+    [created.admin.email],
   );
   assert.equal(row.phone, "0788123456");
   assert.equal(await verifyPassword(password, row.password_hash), true);

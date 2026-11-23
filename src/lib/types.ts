@@ -1,4 +1,4 @@
-export type Role = "admin" | "pharmacist";
+export type Role = "admin" | "pharmacist" | "stock_keeper" | "cashier";
 
 export type Staff = {
   id: number;
@@ -129,6 +129,10 @@ export type DashboardData = {
     createdAt: string;
     itemCount: number;
   }>;
+  showInventory: boolean;
+  showSales: boolean;
+  showPrescriptions: boolean;
+  showOrders: boolean;
   recentSales: Array<{
     id: number;
     drugName: string;

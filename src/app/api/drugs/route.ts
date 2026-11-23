@@ -1,3 +1,4 @@
+import { assertAccess } from "@/lib/access";
 import { requireUser } from "@/lib/auth";
 import { fail, json, readJson } from "@/lib/http";
 import { createDrug, listDrugs } from "@/lib/pharmacy";
@@ -15,8 +16,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requireUser();
-    const drug = await createDrug(parseBody(drugInputSchema, await readJson(request)));
+    const user = await requireUser();
+    assertAccess(user.role, "inventory");
+    const drug = await createDrug(user, parseBody(drugInputSchema, await readJson(request)));
     return json({ drug }, 201);
   } catch (error) {
     return fail(error);

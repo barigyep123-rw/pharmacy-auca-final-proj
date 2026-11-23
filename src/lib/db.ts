@@ -165,6 +165,8 @@ export async function resetAndSeed() {
   const passwords = {
     admin: randomBytes(18).toString("base64url"),
     pharmacist: randomBytes(18).toString("base64url"),
+    stock_keeper: randomBytes(18).toString("base64url"),
+    cashier: randomBytes(18).toString("base64url"),
   };
   await withTransaction(async (query) => {
     await insertSeed(query, passwords);

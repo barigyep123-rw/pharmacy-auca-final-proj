@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, ClipboardList, Package, Wallet } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
-import { greeting, kigaliLongDate } from "@/lib/time";
 import type { DashboardData } from "@/lib/types";
 import { Badge } from "./ui/badge";
 import { Card } from "./ui/card";
@@ -16,7 +15,7 @@ function party(name: string, prescriptionId: number | null) {
   return name || "Walk-in";
 }
 
-export function DashboardScreen() {
+export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: string }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,41 +37,49 @@ export function DashboardScreen() {
   if (!data) return <Notice>{error}</Notice>;
 
   const cards = [
-    {
-      label: "Catalog",
-      value: String(data.totalDrugs),
-      detail: `${data.totalUnits.toLocaleString("en-RW")} units on the shelf`,
-      icon: Package,
-    },
-    {
-      label: "Low stock",
-      value: String(data.lowStock),
-      detail:
-        data.openOrderUnits > 0
-          ? `${data.openOrderUnits.toLocaleString("en-RW")} units already on order`
-          : "At or below the reorder line",
-      icon: AlertTriangle,
-    },
-    {
-      label: "Today's sales",
-      value: formatRwf(data.todaySales.total),
-      detail: `${data.todaySales.count} ${data.todaySales.count === 1 ? "sale" : "sales"} since midnight`,
-      icon: Wallet,
-    },
-    {
-      label: "Prescriptions",
-      value: String(data.recentPrescriptionCount),
-      detail: `${data.pendingPrescriptions} still waiting to dispense`,
-      icon: ClipboardList,
-    },
-  ];
+    data.showInventory
+      ? {
+          label: "Catalog",
+          value: String(data.totalDrugs),
+          detail: `${data.totalUnits.toLocaleString("en-RW")} units on the shelf`,
+          icon: Package,
+        }
+      : null,
+    data.showInventory
+      ? {
+          label: "Low stock",
+          value: String(data.lowStock),
+          detail:
+            data.showOrders && data.openOrderUnits > 0
+              ? `${data.openOrderUnits.toLocaleString("en-RW")} units already on order`
+              : "At or below the reorder line",
+          icon: AlertTriangle,
+        }
+      : null,
+    data.showSales
+      ? {
+          label: "Today's sales",
+          value: formatRwf(data.todaySales.total),
+          detail: `${data.todaySales.count} ${data.todaySales.count === 1 ? "sale" : "sales"} since midnight`,
+          icon: Wallet,
+        }
+      : null,
+    data.showPrescriptions
+      ? {
+          label: "Prescriptions",
+          value: String(data.recentPrescriptionCount),
+          detail: `${data.pendingPrescriptions} still waiting to dispense`,
+          icon: ClipboardList,
+        }
+      : null,
+  ].filter((card) => card !== null);
 
   return (
     <div>
       <PageHeader
-        eyebrow={kigaliLongDate()}
-        title={`${greeting()}.`}
-        lede="Shelf counts, today's takings, and the prescriptions still at the counter."
+        eyebrow={eyebrow}
+        title={title}
+        lede="The counter, limited to what your role can see."
       />
       {error ? <div className="mb-4"><Notice>{error}</Notice></div> : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -88,7 +95,8 @@ export function DashboardScreen() {
         ))}
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <div className={`mt-6 grid gap-4 ${data.showInventory && data.showPrescriptions ? "lg:grid-cols-2" : ""}`}>
+        {data.showInventory ? (
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-serif text-xl">Needs a look</h2>
@@ -121,7 +129,9 @@ export function DashboardScreen() {
             </ul>
           )}
         </Card>
+        ) : null}
 
+        {data.showPrescriptions ? (
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-serif text-xl">Recent prescriptions</h2>
@@ -149,8 +159,10 @@ export function DashboardScreen() {
             </ul>
           )}
         </Card>
+        ) : null}
       </div>
 
+      {data.showSales ? (
       <Card className="mt-4 p-4">
         <h2 className="mb-3 font-serif text-xl">Today at the counter</h2>
         {data.recentSales.length === 0 ? (
@@ -184,6 +196,7 @@ export function DashboardScreen() {
           </div>
         )}
       </Card>
+      ) : null}
     </div>
   );
 }

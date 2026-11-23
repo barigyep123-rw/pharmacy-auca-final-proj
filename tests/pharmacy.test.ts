@@ -32,7 +32,7 @@ async function drug(sku: string) {
 }
 
 test("sample ledger has today's sales, low stock, and an open supplier order", async () => {
-  const dashboard = await getDashboard();
+  const dashboard = await getDashboard(await staffByEmail(staffEmails.admin));
   assert.equal(dashboard.totalDrugs, seedFacts.drugCount);
   assert.equal(dashboard.lowStock, seedFacts.lowStock);
   assert.equal(dashboard.todaySales.count, seedFacts.todaySalesCount);
@@ -68,10 +68,10 @@ test("a sale deducts stock and refuses oversell or expired stock", async () => {
 });
 
 test("placing a supplier order does not change stock until it is received", async () => {
-  const jean = await staffByEmail(staffEmails.pharmacist);
+  const keeper = await staffByEmail(staffEmails.stockKeeper);
   const zinc = await drug("ZINC-20");
   const before = zinc.quantity;
-  const order = await createPurchaseOrder(jean, {
+  const order = await createPurchaseOrder(keeper, {
     supplierName: "Kigali Pharma Wholesale",
     notes: "Extra zinc.",
     items: [
@@ -82,7 +82,7 @@ test("placing a supplier order does not change stock until it is received", asyn
   assert.equal((await drug("ZINC-20")).quantity, before);
   assert.equal((await drug("ZINC-20")).onOrder, zinc.onOrder + 24);
 
-  await receivePurchaseOrder(jean, order.id);
+  await receivePurchaseOrder(keeper, order.id);
   const after = await drug("ZINC-20");
   assert.equal(after.quantity, before + 24);
   assert.equal(after.expiryDate, "2028-04-01");
@@ -91,7 +91,7 @@ test("placing a supplier order does not change stock until it is received", asyn
   assert.equal(after.onOrder, zinc.onOrder);
 
   await assert.rejects(
-    () => receivePurchaseOrder(jean, order.id),
+    () => receivePurchaseOrder(keeper, order.id),
     (error: unknown) => error instanceof ApiError && error.status === 409,
   );
   assert.equal((await drug("ZINC-20")).quantity, before + 24);
@@ -105,7 +105,7 @@ test("cancelling an open order leaves stock unchanged and a received order canno
     notes: "",
     items: [{ drugId: ors.id, quantity: 10, unitCost: 200, expiryDate: "", batchNumber: "" }],
   });
-  await cancelPurchaseOrder(order.id);
+  await cancelPurchaseOrder(amina, order.id);
   assert.equal((await drug("ORS-1")).quantity, ors.quantity);
   const orders = await listPurchaseOrders();
   assert.equal(orders.find((item) => item.id === order.id)?.status, "cancelled");
@@ -113,7 +113,7 @@ test("cancelling an open order leaves stock unchanged and a received order canno
   const received = orders.find((item) => item.status === "received");
   assert.ok(received);
   await assert.rejects(
-    () => cancelPurchaseOrder(received.id),
+    () => cancelPurchaseOrder(amina, received.id),
     (error: unknown) => error instanceof ApiError && error.status === 409,
   );
 });
@@ -136,7 +136,7 @@ test("dispensing a prescription deducts every line or none of them", async () =>
   await dispensePrescription(jean, created.id);
   assert.equal((await drug("AMOX-500")).quantity, amox.quantity - 6);
   assert.equal((await drug("PARA-500")).quantity, para.quantity - 4);
-  const dashboard = await getDashboard();
+  const dashboard = await getDashboard(await staffByEmail(staffEmails.admin));
   assert.ok(dashboard.todaySales.count >= seedFacts.todaySalesCount + 2);
 
   const cipro = await drug("CIPRO-500");
@@ -152,36 +152,43 @@ test("dispensing a prescription deducts every line or none of them", async () =>
     (error: unknown) => error instanceof ApiError && error.status === 409,
   );
   assert.equal((await drug("CIPRO-500")).quantity, cipro.quantity);
-  await cancelPrescription(tooMuch.id);
+  await cancelPrescription(jean, tooMuch.id);
   await assert.rejects(
     () => dispensePrescription(jean, tooMuch.id),
     (error: unknown) => error instanceof ApiError && error.status === 409,
   );
 });
 
-test("pharmacists cannot change price or delete, and admins cannot delete a drug with history", async () => {
+test("roles stay inside their counters, and a drug with history cannot be removed", async () => {
   const jean = await staffByEmail(staffEmails.pharmacist);
   const amina = await staffByEmail(staffEmails.admin);
+  const keeper = await staffByEmail(staffEmails.stockKeeper);
+  const cashier = await staffByEmail(staffEmails.cashier);
   const para = await drug("PARA-500");
+  await updateDrug(jean, para.id, {
+    name: para.name,
+    genericName: para.genericName,
+    category: para.category,
+    form: para.form,
+    strength: para.strength,
+    sku: para.sku,
+    unitPrice: para.unitPrice + 10,
+    reorderLevel: para.reorderLevel,
+    expiryDate: para.expiryDate,
+    batchNumber: para.batchNumber,
+    supplier: para.supplier,
+  });
+  assert.equal((await drug("PARA-500")).unitPrice, para.unitPrice + 10);
   await assert.rejects(
-    () =>
-      updateDrug(jean, para.id, {
-        name: para.name,
-        genericName: para.genericName,
-        category: para.category,
-        form: para.form,
-        strength: para.strength,
-        sku: para.sku,
-        unitPrice: para.unitPrice + 10,
-        reorderLevel: para.reorderLevel,
-        expiryDate: para.expiryDate,
-        batchNumber: para.batchNumber,
-        supplier: para.supplier,
-      }),
+    () => deleteDrug(jean, para.id),
     (error: unknown) => error instanceof ApiError && error.status === 403,
   );
   await assert.rejects(
-    () => deleteDrug(jean, para.id),
+    () => recordSale(keeper, { drugId: para.id, quantity: 1, customerName: "" }),
+    (error: unknown) => error instanceof ApiError && error.status === 403,
+  );
+  await assert.rejects(
+    () => deleteDrug(cashier, para.id),
     (error: unknown) => error instanceof ApiError && error.status === 403,
   );
   await assert.rejects(
@@ -189,7 +196,7 @@ test("pharmacists cannot change price or delete, and admins cannot delete a drug
     (error: unknown) => error instanceof ApiError && error.status === 409,
   );
 
-  const created = await createDrug({
+  const created = await createDrug(amina, {
     name: "Chlorhexidine mouthwash",
     genericName: "Chlorhexidine",
     category: "Dental",

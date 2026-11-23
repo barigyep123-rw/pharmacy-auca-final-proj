@@ -72,11 +72,23 @@ export const purchaseOrderSchema = z.object({
 const email = z
   .string()
   .trim()
-  .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email.");
+  .min(2, "Enter an email or username.")
+  .max(80)
+  .refine(
+    (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || /^[a-zA-Z0-9._-]{2,40}$/.test(value),
+    "Enter an email or a username.",
+  );
 
 export const loginSchema = z.object({
   email,
   password: z.string().min(1, "Enter the password.").max(80),
+});
+
+export const staffSchema = z.object({
+  name: z.string().trim().min(2, "Enter a name.").max(80),
+  email,
+  password: z.string().min(8, "Use at least 8 characters.").max(80),
+  role: z.enum(["admin", "pharmacist", "stock_keeper", "cashier"]),
 });
 
 export const registerSchema = z.object({

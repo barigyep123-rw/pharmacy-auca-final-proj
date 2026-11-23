@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { can } from "@/lib/access";
 import { api } from "@/lib/api";
 import { categorySuggestions, drugForms, suggestedOrderQty, wholeNumber } from "@/lib/catalog";
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
-import type { Drug, Movement, PurchaseOrder, Role } from "@/lib/types";
+import type { Drug, Movement, PurchaseOrder } from "@/lib/types";
 import { useStaff } from "./session";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -107,7 +108,8 @@ function selectClass() {
 
 export function InventoryScreen() {
   const user = useStaff();
-  const role = user?.role ?? "pharmacist";
+  const manageOrders = user ? can(user.role, "orders") : false;
+  const removeDrugs = user ? can(user.role, "deleteDrug") : false;
   const [tab, setTab] = useState<Tab>("shelf");
   const [drugs, setDrugs] = useState<Drug[] | null>(null);
   const [orders, setOrders] = useState<PurchaseOrder[] | null>(null);
@@ -124,20 +126,21 @@ export function InventoryScreen() {
   const [pending, setPending] = useState(false);
 
   async function load() {
-    const [catalog, purchase] = await Promise.all([
-      api<{ drugs: Drug[] }>("/api/drugs"),
-      api<{ orders: PurchaseOrder[] }>("/api/purchase-orders"),
-    ]);
+    const catalog = await api<{ drugs: Drug[] }>("/api/drugs");
     setDrugs(catalog.drugs);
+    if (!manageOrders) {
+      setOrders([]);
+      return;
+    }
+    const purchase = await api<{ orders: PurchaseOrder[] }>("/api/purchase-orders");
     setOrders(purchase.orders);
   }
 
   useEffect(() => {
+    if (!user) return;
     let cancel = false;
-    Promise.all([
-      api<{ drugs: Drug[] }>("/api/drugs"),
-      api<{ orders: PurchaseOrder[] }>("/api/purchase-orders"),
-    ])
+    const orders = manageOrders ? api<{ orders: PurchaseOrder[] }>("/api/purchase-orders") : Promise.resolve({ orders: [] });
+    Promise.all([api<{ drugs: Drug[] }>("/api/drugs"), orders])
       .then(([catalog, purchase]) => {
         if (cancel) return;
         setDrugs(catalog.drugs);
@@ -149,7 +152,7 @@ export function InventoryScreen() {
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [user, manageOrders]);
 
   const visibleDrugs = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -218,7 +221,9 @@ export function InventoryScreen() {
         {(
           [
             ["shelf", "Shelf"],
-            ["orders", `Supplier orders (${orders.filter((order) => order.status === "ordered").length} open)`],
+            ...(manageOrders
+              ? [["orders", `Supplier orders (${(orders ?? []).filter((order) => order.status === "ordered").length} open)`] as const]
+              : []),
           ] as const
         ).map(([id, label]) => (
           <button
@@ -239,7 +244,8 @@ export function InventoryScreen() {
           drugs={visibleDrugs}
           search={search}
           filter={shelfFilter}
-          role={role}
+          canRemove={removeDrugs}
+          canOrder={manageOrders}
           onSearch={setSearch}
           onFilter={setShelfFilter}
           onEdit={(drug) => {
@@ -271,7 +277,6 @@ export function InventoryScreen() {
         key={editing === undefined ? "closed" : editing ? String(editing.id) : "new"}
         open={editing !== undefined}
         drug={editing === undefined ? null : editing}
-        role={role}
         error={formError}
         pending={pending}
         onClose={() => setEditing(undefined)}
@@ -408,7 +413,8 @@ function Shelf({
   drugs,
   search,
   filter,
-  role,
+  canRemove,
+  canOrder,
   onSearch,
   onFilter,
   onEdit,
@@ -418,7 +424,8 @@ function Shelf({
   drugs: Drug[];
   search: string;
   filter: ShelfFilter;
-  role: Role;
+  canRemove: boolean;
+  canOrder: boolean;
   onSearch: (value: string) => void;
   onFilter: (value: ShelfFilter) => void;
   onEdit: (drug: Drug) => void;
@@ -497,10 +504,12 @@ function Shelf({
                         <Button variant="ghost" size="sm" onClick={() => onEdit(drug)}>
                           Edit
                         </Button>
-                        <Button variant="quiet" size="sm" onClick={() => onReorder(drug)}>
-                          Reorder
-                        </Button>
-                        {role === "admin" ? (
+                        {canOrder ? (
+                          <Button variant="quiet" size="sm" onClick={() => onReorder(drug)}>
+                            Reorder
+                          </Button>
+                        ) : null}
+                        {canRemove ? (
                           <Button variant="ghost" size="sm" onClick={() => onDelete(drug)}>
                             Remove
                           </Button>
@@ -592,7 +601,6 @@ function Orders({
 function DrugDialog({
   drug,
   open,
-  role,
   error,
   pending,
   onClose,
@@ -600,7 +608,6 @@ function DrugDialog({
 }: {
   drug: Drug | null;
   open: boolean;
-  role: Role;
   error: string | null;
   pending: boolean;
   onClose: () => void;
@@ -682,10 +689,8 @@ function DrugDialog({
             <Input
               inputMode="numeric"
               value={draft.unitPrice}
-              disabled={Boolean(drug) && role !== "admin"}
               onChange={(event) => set("unitPrice", event.target.value)}
             />
-            {drug && role !== "admin" ? <span className="block text-xs text-muted">Only an admin can change the price.</span> : null}
           </label>
           {drug ? (
             <div className="space-y-1.5">

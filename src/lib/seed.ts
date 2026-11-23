@@ -1,19 +1,20 @@
+import { exampleStaff } from "./example-staff";
 import { hashPassword } from "./password";
 import type { QueryFn } from "./query";
+import type { Role } from "./types";
 
-type StaffPasswords = {
-  admin: string;
-  pharmacist: string;
-};
+type StaffPasswords = Record<Role, string>;
 
 export const staffEmails = {
   admin: "amina@ubuzima.rw",
   pharmacist: "jean@ubuzima.rw",
+  stockKeeper: "claudine@ubuzima.rw",
+  cashier: "eric@ubuzima.rw",
 } as const;
 
-const staffPlan = [
-  { name: "Amina Uwase", email: staffEmails.admin, role: "admin" as const },
-  { name: "Jean Habimana", email: staffEmails.pharmacist, role: "pharmacist" as const },
+const staffPlan: Array<{ name: string; email: string; role: Role }> = [
+  { name: "Amina Uwase", email: staffEmails.admin, role: "admin" },
+  ...exampleStaff,
 ];
 
 type DrugSeed = {

@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { roleLabel } from "@/lib/access";
 import { pharmacyName, pharmacyPlace } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Notice } from "./ui/chrome";
+import type { Role } from "@/lib/types";
+
+type DemoLogin = { name: string; email: string; role: Role; password: string };
 
 export function RegisterScreen() {
   const [name, setName] = useState("");
@@ -15,6 +19,7 @@ export function RegisterScreen() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [demoStaff, setDemoStaff] = useState<DemoLogin[] | null>(null);
 
   async function register() {
     if (password !== confirm) {
@@ -24,11 +29,12 @@ export function RegisterScreen() {
     setError(null);
     setPending(true);
     try {
-      await api("/api/auth/register", {
+      const result = await api<{ demoStaff: DemoLogin[] }>("/api/auth/register", {
         method: "POST",
         body: JSON.stringify({ name, phone, email, password }),
       });
-      window.location.replace(new URL("/login?ready=1", window.location.origin).href);
+      setDemoStaff(result.demoStaff);
+      setPending(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not create the admin account.");
       setPending(false);
@@ -40,20 +46,46 @@ export function RegisterScreen() {
       <section className="flex flex-col justify-between bg-pine-deep px-6 py-8 text-paper-2 lg:px-12 lg:py-12">
         <div>
           <p className="font-serif text-3xl">{pharmacyName}</p>
-          <p className="mt-1 text-sm text-paper-2/65">{pharmacyPlace}</p>
+          <span className="mt-3 block h-1 w-16 bg-brass" />
+          <p className="mt-3 text-sm text-paper-2/65">{pharmacyPlace}</p>
         </div>
         <div className="my-10 max-w-md">
           <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
             Open the ledger with the first admin account.
           </h1>
           <p className="mt-6 text-sm leading-6 text-paper-2/75">
-            This desk has no admin yet. Register your name, phone, and email, then choose a password. After that, sign in with those details.
+            {demoStaff
+              ? "Your admin account is open. Sign in with the email and password you just chose. The other desks are listed once, on the right."
+              : "This desk has no admin yet. Register your name, email, and phone, then choose a password. After that, sign in with those details."}
           </p>
         </div>
         <p className="text-xs text-paper-2/50">Prices in Rwandan francs. Dates follow Africa/Kigali.</p>
       </section>
 
       <section className="flex items-center bg-paper px-6 py-10 lg:px-12">
+        {demoStaff ? (
+          <div className="mx-auto w-full max-w-md space-y-5">
+            <div>
+              <h2 className="font-serif text-3xl tracking-tight">Desk passwords</h2>
+              <p className="mt-2 text-sm text-muted">
+                These example accounts were created just now. The passwords are shown once and are not stored in the app.
+              </p>
+            </div>
+            <ul className="space-y-3">
+              {demoStaff.map((person) => (
+                <li key={person.email} className="rounded-xl border border-line bg-card px-3 py-3">
+                  <p className="text-sm font-medium">{person.name}</p>
+                  <p className="text-xs text-brass">{roleLabel(person.role)}</p>
+                  <p className="mt-1 text-sm">{person.email}</p>
+                  <p className="mt-1 font-mono text-sm">{person.password}</p>
+                </li>
+              ))}
+            </ul>
+            <Button type="button" className="w-full" onClick={() => window.location.replace(new URL("/login?ready=1", window.location.origin).href)}>
+              Continue to sign in
+            </Button>
+          </div>
+        ) : (
         <form
           className="mx-auto w-full max-w-md space-y-5"
           onSubmit={(event) => {
@@ -116,6 +148,7 @@ export function RegisterScreen() {
             {pending ? "Creating the account…" : "Create admin account"}
           </Button>
         </form>
+        )}
       </section>
     </div>
   );

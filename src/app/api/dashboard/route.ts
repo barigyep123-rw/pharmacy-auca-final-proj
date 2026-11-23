@@ -4,8 +4,8 @@ import { getDashboard } from "@/lib/pharmacy";
 
 export async function GET() {
   try {
-    await requireUser();
-    return json(await getDashboard());
+    const user = await requireUser();
+    return json(await getDashboard(user));
   } catch (error) {
     return fail(error);
   }

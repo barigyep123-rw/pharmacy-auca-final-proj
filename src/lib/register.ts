@@ -1,7 +1,16 @@
+import { randomBytes } from "node:crypto";
 import { sql, withTransaction } from "./db";
+import { exampleStaff } from "./example-staff";
 import { ApiError } from "./errors";
 import { hashPassword } from "./password";
 import type { Role, Staff } from "./types";
+
+export type DemoLogin = {
+  name: string;
+  email: string;
+  role: Role;
+  password: string;
+};
 
 export async function hasAdmin() {
   if (process.env.NEXT_PHASE === "phase-production-build") return false;
@@ -14,9 +23,13 @@ export async function registerInitialAdmin(input: {
   phone: string;
   email: string;
   password: string;
-}): Promise<Staff> {
+}): Promise<{ admin: Staff; demoStaff: DemoLogin[] }> {
   const passwordHash = await hashPassword(input.password);
-  return withTransaction(async (query) => {
+  const demoStaff: DemoLogin[] = [];
+  for (const person of exampleStaff) {
+    demoStaff.push({ ...person, password: randomBytes(18).toString("base64url") });
+  }
+  const admin = await withTransaction(async (query) => {
     await query("select pg_advisory_xact_lock(8841201)");
     const [existing] = await query<{ n: number }>("select count(*)::int as n from users where role = 'admin'");
     if ((existing?.n ?? 0) > 0) {
@@ -29,6 +42,14 @@ export async function registerInitialAdmin(input: {
       [input.name, input.email.toLowerCase(), input.phone, passwordHash],
     );
     if (!user) throw new ApiError(500, "The admin account was not created.");
+    for (const person of demoStaff) {
+      const hash = await hashPassword(person.password);
+      await query(
+        `insert into users (name, email, password_hash, role) values ($1, $2, $3, $4)`,
+        [person.name, person.email, hash, person.role],
+      );
+    }
     return { id: user.id, name: user.name, email: user.email, role: user.role };
   });
+  return { admin, demoStaff };
 }

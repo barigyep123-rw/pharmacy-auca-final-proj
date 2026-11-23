@@ -1,23 +1,23 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-fraunces), ui-serif, Georgia, serif;
-  --color-paper: #f3efe4;
-  --color-paper-2: #fbf8f2;
-  --color-ink: #1c2420;
-  --color-muted: #5c6b63;
-  --color-pine: #1d4f3a;
-  --color-pine-deep: #12261e;
-  --color-pine-soft: #e5f2ea;
-  --color-brass: #8d6a32;
-  --color-brass-soft: #f4ead6;
-  --color-line: #e3dac8;
+  --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  --color-paper: #f3f0ea;
+  --color-paper-2: #fbf9f5;
+  --color-ink: #1a2332;
+  --color-muted: #5c6778;
+  --color-pine: #1e3a5f;
+  --color-pine-deep: #121c2e;
+  --color-pine-soft: #e6eef6;
+  --color-brass: #b5683a;
+  --color-brass-soft: #f8efe6;
+  --color-line: #e4ddd2;
   --color-clay: #9d2c22;
   --color-clay-soft: #f8e6e2;
   --color-amber: #8a5a10;
   --color-amber-soft: #f8efd8;
-  --color-card: #fffcf7;
+  --color-card: #fffcf8;
 }
 
 html,
@@ -32,7 +32,7 @@ body {
 }
 
 ::selection {
-  background: #c9e2d4;
+  background: #d5e2f0;
 }
 
 input,

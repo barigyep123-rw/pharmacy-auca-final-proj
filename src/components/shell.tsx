@@ -2,25 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, LayoutDashboard, LogOut, Menu, Package, ShoppingBag, X } from "lucide-react";
+import { ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, ShoppingBag, X } from "lucide-react";
 import { useState } from "react";
+import { can, roleLabel, type Area } from "@/lib/access";
 import { pharmacyPlace, pharmacyShort } from "@/lib/brand";
 import { api } from "@/lib/api";
 import type { Staff } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const links = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/sales", label: "Sales", icon: ShoppingBag },
-  { href: "/prescriptions", label: "Prescriptions", icon: ClipboardList },
+const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; area: Area }> = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, area: "dashboard" },
+  { href: "/inventory", label: "Inventory", icon: Package, area: "inventory" },
+  { href: "/sales", label: "Sales", icon: ShoppingBag, area: "sales" },
+  { href: "/prescriptions", label: "Prescriptions", icon: ClipboardList, area: "prescriptions" },
+  { href: "/settings", label: "Settings", icon: Settings, area: "settings" },
 ];
 
 function Mark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
       <rect width="32" height="32" rx="8" fill="currentColor" />
-      <path d="M16 7v18M10 13h12" stroke="#f3efe4" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M16 7v18M10 13h12" stroke="#fbf9f5" strokeWidth="2.2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -36,7 +38,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
 
   const nav = (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
-      {links.map((link) => {
+      {links.filter((link) => can(user.role, link.area)).map((link) => {
         const active = pathname === link.href;
         const Icon = link.icon;
         return (
@@ -71,7 +73,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         {nav}
         <div className="border-t border-white/10 p-4 pb-16">
           <p className="text-sm font-medium">{user.name}</p>
-          <p className="text-xs capitalize text-paper-2/60">{user.role}</p>
+          <p className="text-xs text-paper-2/60">{roleLabel(user.role)}</p>
           <button
             type="button"
             onClick={() => void signOut()}

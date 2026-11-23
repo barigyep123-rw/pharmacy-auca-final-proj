@@ -18,13 +18,15 @@ export async function login(email: string, password: string): Promise<Staff> {
     name: string;
     email: string;
     role: Role;
+    active: boolean;
     password_hash: string;
-  }>(`select id, name, email, role, password_hash from users where lower(email) = lower($1)`, [
+  }>(`select id, name, email, role, active, password_hash from users where lower(email) = lower($1)`, [
     email.trim(),
   ]);
   if (!user || !(await verifyPassword(password, user.password_hash))) {
     throw new ApiError(401, "Those details don't match a staff account.");
   }
+  if (!user.active) throw new ApiError(403, "This account is turned off. Ask an admin.");
   const token = randomBytes(32).toString("hex");
   await sql(
     `insert into sessions (token, user_id, expires_at) values ($1, $2, now() + interval '12 hours')`,
@@ -56,7 +58,7 @@ export async function currentUser(): Promise<Staff | null> {
     `select u.id, u.name, u.email, u.role
      from sessions s
      join users u on u.id = s.user_id
-     where s.token = $1 and s.expires_at > now()`,
+     where s.token = $1 and s.expires_at > now() and u.active = true`,
     [token],
   );
   return user ? staff(user) : null;

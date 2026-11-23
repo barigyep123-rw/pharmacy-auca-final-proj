@@ -10,7 +10,14 @@ Counter ledger for a neighborhood pharmacy in Kimironko, Kigali. It keeps the dr
 - Postgres when `DATABASE_URL` is set (used by the published app)
 - Tailwind for the interface
 
-Admins can change selling prices and remove a drug that has no history. Pharmacists sell, dispense, place supplier orders, and receive them. Both roles share the same four screens.
+Settings is under the counter menu and is only for an admin. Roles:
+
+- Admin: the whole counter, including staff.
+- Pharmacist: drugs, sales, prescriptions, and the dashboard.
+- Stock keeper: inventory, expiry, and supplier orders. No sales or prescriptions.
+- Cashier: sales and prescriptions only.
+
+The first admin chooses their own password. Example accounts for the other three roles are created at that moment, and their passwords are shown once. They are not written into the source.
 
 ## First visit
 

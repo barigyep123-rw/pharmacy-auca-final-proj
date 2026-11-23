@@ -33,7 +33,8 @@ export function LoginScreen({ notice }: { notice?: string | null }) {
       <section className="flex flex-col justify-between bg-pine-deep px-6 py-8 text-paper-2 lg:px-12 lg:py-12">
         <div>
           <p className="font-serif text-3xl">{pharmacyName}</p>
-          <p className="mt-1 text-sm text-paper-2/65">{pharmacyPlace}</p>
+          <span className="mt-3 block h-1 w-16 bg-brass" />
+          <p className="mt-3 text-sm text-paper-2/65">{pharmacyPlace}</p>
         </div>
         <div className="my-10 max-w-md">
           <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
