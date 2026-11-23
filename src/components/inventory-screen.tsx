@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
@@ -741,6 +741,130 @@ function DrugDialog({
   );
 }
 
+function drugChoiceLabel(drug: Drug) {
+  return `${drug.name} ${drug.strength} · ${drug.quantity} on hand`;
+}
+
+function DrugSearch({
+  drugs,
+  value,
+  label,
+  onChange,
+}: {
+  drugs: Drug[];
+  value: string;
+  label: string;
+  onChange: (drugId: string) => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const selected = drugs.find((drug) => String(drug.id) === value);
+  const needle = query.trim().toLowerCase();
+  const matches = drugs
+    .filter((drug) => {
+      if (!needle) return true;
+      return `${drug.name} ${drug.genericName} ${drug.strength} ${drug.sku} ${drug.category}`.toLowerCase().includes(needle);
+    })
+    .sort((left, right) => {
+      if (!needle) return left.name.localeCompare(right.name);
+      const rank = (drug: Drug) => (drug.name.toLowerCase().startsWith(needle) ? 0 : 1);
+      return rank(left) - rank(right) || left.name.localeCompare(right.name);
+    });
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: MouseEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
+  }, [open]);
+
+  const highlighted = matches.length === 0 ? 0 : Math.min(active, matches.length - 1);
+
+  function choose(drug: Drug) {
+    onChange(String(drug.id));
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={root} className="relative">
+      <Input
+        role="combobox"
+        aria-label={label}
+        aria-expanded={open}
+        aria-autocomplete="list"
+        autoComplete="off"
+        placeholder="Search drugs"
+        value={open ? query : selected ? drugChoiceLabel(selected) : ""}
+        onFocus={() => {
+          setQuery("");
+          setActive(0);
+          setOpen(true);
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setActive(0);
+          setOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setOpen(true);
+            setActive((index) => Math.min(index + 1, Math.max(matches.length - 1, 0)));
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActive((index) => Math.max(index - 1, 0));
+          } else if (event.key === "Enter" && open) {
+            event.preventDefault();
+            const drug = matches[highlighted];
+            if (drug) choose(drug);
+          } else if (event.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      />
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label={label}
+          className="mt-1 max-h-52 overflow-y-auto rounded-lg border border-line bg-card shadow-lg"
+        >
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-muted">No drugs match that search.</li>
+          ) : (
+            matches.map((drug, index) => (
+              <li key={drug.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={String(drug.id) === value}
+                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${
+                    index === highlighted ? "bg-pine-soft" : "hover:bg-paper"
+                  }`}
+                  onMouseEnter={() => setActive(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(drug)}
+                >
+                  <span>
+                    <span className="font-medium">{drug.name}</span>{" "}
+                    <span className="text-muted">{drug.strength}</span>
+                    <span className="block text-xs text-muted">{drug.sku}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted">{drug.quantity} on hand</span>
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function OrderDialog({
   lines,
   drugs,
@@ -795,21 +919,14 @@ function OrderDialog({
             </label>
             {lines.map((line, index) => (
               <div key={line.key} className="grid gap-2 rounded-xl border border-line p-3 sm:grid-cols-2">
-                <select
-                  className={selectClass()}
+                <DrugSearch
+                  drugs={drugs}
                   value={line.drugId}
-                  aria-label={`Order drug ${index + 1}`}
-                  onChange={(event) =>
-                    onLines(lines.map((item) => (item.key === line.key ? { ...item, drugId: event.target.value } : item)))
+                  label={`Order drug ${index + 1}`}
+                  onChange={(drugId) =>
+                    onLines(lines.map((item) => (item.key === line.key ? { ...item, drugId } : item)))
                   }
-                >
-                  <option value="">Drug</option>
-                  {drugs.map((drug) => (
-                    <option key={drug.id} value={drug.id}>
-                      {drug.name} {drug.strength} · {drug.quantity} on hand
-                    </option>
-                  ))}
-                </select>
+                />
                 <Input
                   aria-label={`Order quantity ${index + 1}`}
                   inputMode="numeric"
