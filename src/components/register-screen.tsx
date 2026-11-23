@@ -71,22 +71,22 @@ export function RegisterScreen() {
             <Input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Phone number</span>
-            <Input
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              autoComplete="tel"
-              inputMode="tel"
-              required
-            />
-          </label>
-          <label className="block space-y-1.5">
             <span className="text-sm font-medium">Email</span>
             <Input
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              required
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Phone number</span>
+            <Input
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              autoComplete="tel"
+              inputMode="tel"
               required
             />
           </label>
@@ -102,7 +102,7 @@ export function RegisterScreen() {
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Confirm password</span>
+            <span className="text-sm font-medium">Repeat password</span>
             <Input
               type="password"
               value={confirm}
