@@ -18,7 +18,7 @@ import {
   staffByEmail,
   updateDrug,
 } from "../src/lib/pharmacy";
-import { seedFacts } from "../src/lib/seed";
+import { seedFacts, staffEmails } from "../src/lib/seed";
 
 beforeEach(async () => {
   await resetAndSeed();
@@ -46,7 +46,7 @@ test("sample ledger has today's sales, low stock, and an open supplier order", a
 });
 
 test("a sale deducts stock and refuses oversell or expired stock", async () => {
-  const jean = await staffByEmail("jean@apotheka.rw");
+  const jean = await staffByEmail(staffEmails.pharmacist);
   const para = await drug("PARA-500");
   const sale = await recordSale(jean, { drugId: para.id, quantity: 2, customerName: "Walk-in" });
   assert.equal(sale.quantityLeft, para.quantity - 2);
@@ -68,7 +68,7 @@ test("a sale deducts stock and refuses oversell or expired stock", async () => {
 });
 
 test("placing a supplier order does not change stock until it is received", async () => {
-  const jean = await staffByEmail("jean@apotheka.rw");
+  const jean = await staffByEmail(staffEmails.pharmacist);
   const zinc = await drug("ZINC-20");
   const before = zinc.quantity;
   const order = await createPurchaseOrder(jean, {
@@ -98,7 +98,7 @@ test("placing a supplier order does not change stock until it is received", asyn
 });
 
 test("cancelling an open order leaves stock unchanged and a received order cannot be cancelled", async () => {
-  const amina = await staffByEmail("amina@apotheka.rw");
+  const amina = await staffByEmail(staffEmails.admin);
   const ors = await drug("ORS-1");
   const order = await createPurchaseOrder(amina, {
     supplierName: "National Medical Store",
@@ -119,7 +119,7 @@ test("cancelling an open order leaves stock unchanged and a received order canno
 });
 
 test("dispensing a prescription deducts every line or none of them", async () => {
-  const jean = await staffByEmail("jean@apotheka.rw");
+  const jean = await staffByEmail(staffEmails.pharmacist);
   const amox = await drug("AMOX-500");
   const para = await drug("PARA-500");
   const created = await createPrescription(jean, {
@@ -160,8 +160,8 @@ test("dispensing a prescription deducts every line or none of them", async () =>
 });
 
 test("pharmacists cannot change price or delete, and admins cannot delete a drug with history", async () => {
-  const jean = await staffByEmail("jean@apotheka.rw");
-  const amina = await staffByEmail("amina@apotheka.rw");
+  const jean = await staffByEmail(staffEmails.pharmacist);
+  const amina = await staffByEmail(staffEmails.admin);
   const para = await drug("PARA-500");
   await assert.rejects(
     () =>

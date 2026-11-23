@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pharmacyName } from "@/lib/brand";
 import { Fraunces, Outfit } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -15,8 +16,8 @@ const fraunces = Fraunces({
 
 export const metadata: Metadata = {
   title: {
-    default: "Apotheka",
-    template: "%s · Apotheka",
+    default: pharmacyName,
+    template: `%s · ${pharmacyName}`,
   },
   description: "Inventory, sales, prescriptions, and supplier orders for a neighborhood pharmacy.",
 };

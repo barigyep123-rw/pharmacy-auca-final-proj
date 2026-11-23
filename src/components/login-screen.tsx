@@ -1,25 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import { pharmacyName, pharmacyPlace } from "@/lib/brand";
 import { api } from "@/lib/api";
-import { demoAccounts } from "@/lib/demo-accounts";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Notice } from "./ui/chrome";
 
 export function LoginScreen() {
-  const [email, setEmail] = useState(demoAccounts[0].email);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function signIn(nextEmail = email, nextPassword = password) {
+  async function signIn() {
     setError(null);
     setPending(true);
     try {
       await api("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: nextEmail, password: nextPassword }),
+        body: JSON.stringify({ email, password }),
       });
       window.location.replace(new URL("/dashboard", window.location.origin).href);
     } catch (caught) {
@@ -32,8 +32,8 @@ export function LoginScreen() {
     <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
       <section className="flex flex-col justify-between bg-pine-deep px-6 py-8 text-paper-2 lg:px-12 lg:py-12">
         <div>
-          <p className="font-serif text-3xl">Apotheka</p>
-          <p className="mt-1 text-sm text-paper-2/65">Neighborhood pharmacy, Kigali</p>
+          <p className="font-serif text-3xl">{pharmacyName}</p>
+          <p className="mt-1 text-sm text-paper-2/65">{pharmacyPlace}</p>
         </div>
         <div className="my-10 max-w-md">
           <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
@@ -59,7 +59,9 @@ export function LoginScreen() {
         >
           <div>
             <h2 className="font-serif text-3xl tracking-tight">Sign in</h2>
-            <p className="mt-2 text-sm text-muted">Use a sample desk. Admin and pharmacist see different catalog controls.</p>
+            <p className="mt-2 text-sm text-muted">
+              Use the email and password issued for your desk. Admin and pharmacist see different catalog controls.
+            </p>
           </div>
           {error ? <Notice>{error}</Notice> : null}
           <label className="block space-y-1.5">
@@ -85,25 +87,6 @@ export function LoginScreen() {
           <Button type="submit" className="w-full" disabled={pending}>
             {pending ? "Checking…" : "Enter the counter"}
           </Button>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {demoAccounts.map((account) => (
-              <button
-                key={account.email}
-                type="button"
-                disabled={pending}
-                onClick={() => {
-                  setEmail(account.email);
-                  setPassword(account.password);
-                  void signIn(account.email, account.password);
-                }}
-                className="rounded-xl border border-line bg-card px-3 py-3 text-left hover:border-pine/40 disabled:opacity-50"
-              >
-                <span className="block text-sm font-medium">{account.name}</span>
-                <span className="mt-0.5 block text-xs text-brass">{account.title}</span>
-                <span className="mt-1 block text-xs leading-5 text-muted">{account.hint}</span>
-              </button>
-            ))}
-          </div>
         </form>
       </section>
     </div>

@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 
 export function hashPassword(password: string) {
-  const rounds = process.env.APOTHEKA_PGLITE === "memory" ? 4 : 10;
+  const rounds = process.env.UBUZIMA_PGLITE === "memory" ? 4 : 10;
   return bcrypt.hash(password, rounds);
 }
 

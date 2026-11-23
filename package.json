@@ -1,13 +1,13 @@
 {
-  "name": "apotheka",
+  "name": "pharmacie-ubuzima",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 4781 -H 127.0.0.1",
+    "dev": "env -u DATABASE_URL next dev -p 4781 -H 127.0.0.1",
     "build": "next build && node scripts/migrate.mjs",
     "start": "next start -p 4781 -H 127.0.0.1",
     "lint": "eslint",
-    "test": "env -u DATABASE_URL APOTHEKA_PGLITE=memory tsx --test tests/pharmacy.test.ts"
+    "test": "env -u DATABASE_URL UBUZIMA_PGLITE=memory tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.6.0",

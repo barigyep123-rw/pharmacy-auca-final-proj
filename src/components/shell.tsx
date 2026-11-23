@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ClipboardList, LayoutDashboard, LogOut, Menu, Package, ShoppingBag, X } from "lucide-react";
 import { useState } from "react";
+import { pharmacyPlace, pharmacyShort } from "@/lib/brand";
 import { api } from "@/lib/api";
 import type { Staff } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -63,8 +64,8 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         <div className="flex items-center gap-3 px-5 pt-6">
           <Mark className="size-8 text-brass" />
           <div>
-            <p className="font-serif text-xl leading-none">Apotheka</p>
-            <p className="mt-1 text-xs text-paper-2/60">Kigali counter</p>
+            <p className="font-serif text-xl leading-none">{pharmacyShort}</p>
+            <p className="mt-1 text-xs text-paper-2/60">{pharmacyPlace}</p>
           </div>
         </div>
         {nav}
@@ -86,7 +87,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         <header className="flex items-center justify-between border-b border-line bg-card px-4 py-3 md:hidden">
           <div className="flex items-center gap-2">
             <Mark className="size-7 text-brass" />
-            <span className="font-serif text-lg">Apotheka</span>
+            <span className="font-serif text-lg">{pharmacyShort}</span>
           </div>
           <button
             type="button"

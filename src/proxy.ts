@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const COOKIE = "apotheka_session";
+const COOKIE = "ubuzima_session";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

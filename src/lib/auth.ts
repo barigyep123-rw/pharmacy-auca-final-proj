@@ -5,7 +5,7 @@ import { ApiError } from "./errors";
 import { verifyPassword } from "./password";
 import type { Role, Staff } from "./types";
 
-const COOKIE = "apotheka_session";
+const COOKIE = "ubuzima_session";
 const MAX_AGE = 60 * 60 * 12;
 
 function staff(row: { id: number; name: string; email: string; role: Role }): Staff {

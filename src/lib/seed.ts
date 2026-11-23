@@ -1,6 +1,16 @@
-import { demoAccounts } from "./demo-accounts";
 import { hashPassword } from "./password";
 import type { QueryFn } from "./query";
+import type { StaffPasswords } from "./staff-secrets";
+
+export const staffEmails = {
+  admin: "amina@ubuzima.rw",
+  pharmacist: "jean@ubuzima.rw",
+} as const;
+
+const staffPlan = [
+  { name: "Amina Uwase", email: staffEmails.admin, role: "admin" as const },
+  { name: "Jean Habimana", email: staffEmails.pharmacist, role: "pharmacist" as const },
+];
 
 type DrugSeed = {
   sku: string;
@@ -91,9 +101,12 @@ async function drugBySku(query: QueryFn, sku: string) {
   return row;
 }
 
-export async function insertSeed(query: QueryFn) {
-  for (const account of demoAccounts) {
-    const passwordHash = await hashPassword(account.password);
+export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
+  if (passwords.admin.trim() === "" || passwords.pharmacist.trim() === "") {
+    throw new Error("Staff passwords are required before sample accounts can be created.");
+  }
+  for (const account of staffPlan) {
+    const passwordHash = await hashPassword(passwords[account.role]);
     await query(
       `insert into users (name, email, password_hash, role) values ($1, $2, $3, $4)`,
       [account.name, account.email, passwordHash, account.role],
@@ -123,8 +136,8 @@ export async function insertSeed(query: QueryFn) {
     );
   }
 
-  const adminId = await userId(query, "amina@apotheka.rw");
-  const pharmacistId = await userId(query, "jean@apotheka.rw");
+  const adminId = await userId(query, staffEmails.admin);
+  const pharmacistId = await userId(query, staffEmails.pharmacist);
 
   const paracetamol = await drugBySku(query, "PARA-500");
   await query(

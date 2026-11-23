@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import type { QueryFn } from "./query";
 import { insertSeed } from "./seed";
+import { resolveStaffPasswords, type StaffPasswords } from "./staff-secrets";
 
 const MIGRATIONS = path.join(process.cwd(), "migrations");
 
@@ -16,7 +17,16 @@ function databaseUrl() {
 }
 
 function memoryMode() {
-  return process.env.APOTHEKA_PGLITE === "memory";
+  return process.env.UBUZIMA_PGLITE === "memory";
+}
+
+function hostedMode() {
+  if (memoryMode()) return false;
+  return databaseUrl() !== "" || process.env.NODE_ENV === "production";
+}
+
+async function staffPasswords(): Promise<StaffPasswords | null> {
+  return resolveStaffPasswords({ hosted: hostedMode(), memory: memoryMode() });
 }
 
 export async function sql<T = Record<string, unknown>>(
@@ -125,7 +135,10 @@ async function seedIfEmpty(query: QueryFn, pooled: boolean) {
     try {
       await client.query("begin");
       const [row] = await clientQuery<{ n: number }>("select count(*)::int as n from users");
-      if ((row?.n ?? 0) === 0) await insertSeed(clientQuery);
+      if ((row?.n ?? 0) === 0) {
+        const passwords = await staffPasswords();
+        if (passwords) await insertSeed(clientQuery, passwords);
+      }
       await client.query("commit");
     } catch (error) {
       await client.query("rollback");
@@ -138,12 +151,14 @@ async function seedIfEmpty(query: QueryFn, pooled: boolean) {
 
   const [row] = await query<{ n: number }>("select count(*)::int as n from users");
   if ((row?.n ?? 0) > 0) return;
+  const passwords = await staffPasswords();
+  if (!passwords) return;
   await local!.transaction(async (tx) => {
     const txQuery: QueryFn = async (text, params = []) => {
       const result = await tx.query(text, params);
       return result.rows as never;
     };
-    await insertSeed(txQuery);
+    await insertSeed(txQuery, passwords);
   });
 }
 
@@ -161,7 +176,9 @@ export async function resetAndSeed() {
       users
     restart identity cascade`,
   );
+  const passwords = await staffPasswords();
+  if (!passwords) throw new Error("Staff passwords are not configured.");
   await withTransaction(async (query) => {
-    await insertSeed(query);
+    await insertSeed(query, passwords);
   });
 }
