@@ -1,6 +1,10 @@
 import { hashPassword } from "./password";
 import type { QueryFn } from "./query";
-import type { StaffPasswords } from "./staff-secrets";
+
+type StaffPasswords = {
+  admin: string;
+  pharmacist: string;
+};
 
 export const staffEmails = {
   admin: "amina@ubuzima.rw",
@@ -101,18 +105,9 @@ async function drugBySku(query: QueryFn, sku: string) {
   return row;
 }
 
-export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
-  if (passwords.admin.trim() === "" || passwords.pharmacist.trim() === "") {
-    throw new Error("Staff passwords are required before sample accounts can be created.");
-  }
-  for (const account of staffPlan) {
-    const passwordHash = await hashPassword(passwords[account.role]);
-    await query(
-      `insert into users (name, email, password_hash, role) values ($1, $2, $3, $4)`,
-      [account.name, account.email, passwordHash, account.role],
-    );
-  }
-
+export async function seedCatalog(query: QueryFn) {
+  const [row] = await query<{ n: number }>("select count(*)::int as n from drugs");
+  if ((row?.n ?? 0) > 0) return;
   for (const drug of drugPlan) {
     await query(
       `insert into drugs (
@@ -135,6 +130,21 @@ export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
       ],
     );
   }
+}
+
+export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
+  if (passwords.admin.trim() === "" || passwords.pharmacist.trim() === "") {
+    throw new Error("Staff passwords are required before sample accounts can be created.");
+  }
+  for (const account of staffPlan) {
+    const passwordHash = await hashPassword(passwords[account.role]);
+    await query(
+      `insert into users (name, email, password_hash, role) values ($1, $2, $3, $4)`,
+      [account.name, account.email, passwordHash, account.role],
+    );
+  }
+
+  await seedCatalog(query);
 
   const adminId = await userId(query, staffEmails.admin);
   const pharmacistId = await userId(query, staffEmails.pharmacist);

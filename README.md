@@ -12,18 +12,11 @@ Counter ledger for a neighborhood pharmacy in Kimironko, Kigali. It keeps the dr
 
 Admins can change selling prices and remove a drug that has no history. Pharmacists sell, dispense, place supplier orders, and receive them. Both roles share the same four screens.
 
-## Staff passwords
+## First visit
 
-The app does not ship with passwords.
+A fresh database has no staff accounts and no built-in passwords. The first page asks the initial admin to register a name, phone number, email, and password. After that, the sign-in page is the entry point. A second registration is refused.
 
-On a hosted database, sample staff are created only when both of these are set:
-
-- `UBUZIMA_ADMIN_PASSWORD` for Amina Uwase (`amina@ubuzima.rw`)
-- `UBUZIMA_PHARMACIST_PASSWORD` for Jean Habimana (`jean@ubuzima.rw`)
-
-Leave either one unset and the empty database stays empty. No default password is inserted.
-
-For a local run, the first start writes a random password for each of those desks to `data/staff-passwords.txt`. That file is gitignored. Delete `data/` to load a fresh shelf and a new pair of passwords.
+The sample drug shelf is loaded with the database. Sales and prescriptions start empty until someone records them.
 
 ## Run it
 
@@ -32,7 +25,7 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:4781 and sign in with the emails and passwords in `data/staff-passwords.txt`.
+Open http://127.0.0.1:4781. Delete `data/` to see the registration page again.
 
 ```bash
 npm test

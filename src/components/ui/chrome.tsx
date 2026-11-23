@@ -16,9 +16,12 @@ export function Field({
   );
 }
 
-export function Notice({ children }: { children: React.ReactNode }) {
+export function Notice({ children, tone = "error" }: { children: React.ReactNode; tone?: "error" | "ok" }) {
   return (
-    <p className="rounded-lg bg-clay-soft px-3 py-2 text-sm text-clay" role="alert">
+    <p
+      className={tone === "ok" ? "rounded-lg bg-pine-soft px-3 py-2 text-sm text-pine" : "rounded-lg bg-clay-soft px-3 py-2 text-sm text-clay"}
+      role={tone === "ok" ? "status" : "alert"}
+    >
       {children}
     </p>
   );

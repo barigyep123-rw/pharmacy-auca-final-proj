@@ -7,7 +7,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Notice } from "./ui/chrome";
 
-export function LoginScreen() {
+export function LoginScreen({ notice }: { notice?: string | null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -60,9 +60,10 @@ export function LoginScreen() {
           <div>
             <h2 className="font-serif text-3xl tracking-tight">Sign in</h2>
             <p className="mt-2 text-sm text-muted">
-              Use the email and password issued for your desk. Admin and pharmacist see different catalog controls.
+              Use the email and password for your desk. Admin and pharmacist see different catalog controls.
             </p>
           </div>
+          {notice ? <Notice tone="ok">{notice}</Notice> : null}
           {error ? <Notice>{error}</Notice> : null}
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">Email</span>

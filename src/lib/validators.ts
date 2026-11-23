@@ -69,12 +69,21 @@ export const purchaseOrderSchema = z.object({
   items: z.array(orderLine).min(1, "Add at least one drug.").max(20),
 });
 
+const email = z
+  .string()
+  .trim()
+  .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email.");
+
 export const loginSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Enter a valid email."),
+  email,
   password: z.string().min(1, "Enter the password.").max(80),
+});
+
+export const registerSchema = z.object({
+  name: z.string().trim().min(2, "Enter your name.").max(80),
+  phone: z.string().trim().min(7, "Enter a phone number.").max(24),
+  email,
+  password: z.string().min(8, "Use at least 8 characters.").max(80),
 });
 
 export function parseBody<T>(schema: z.ZodType<T>, data: unknown): T {

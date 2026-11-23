@@ -16,7 +16,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   const data = (await response.json().catch(() => ({}))) as { error?: string } & T;
-  if (response.status === 401 && path !== "/api/auth/login") {
+  if (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/register") {
     await fetch("/api/auth/logout", {
       method: "POST",
       headers: { "content-type": "application/json" },
