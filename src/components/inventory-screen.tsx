@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
+import { compressPhoto } from "@/lib/compress-photo";
 import { categorySuggestions, drugForms, suggestedOrderQty, wholeNumber } from "@/lib/catalog";
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
 import type { Drug, Movement, PurchaseOrder } from "@/lib/types";
@@ -33,6 +34,8 @@ type DrugDraft = {
   expiryDate: string;
   batchNumber: string;
   supplier: string;
+  photoData: string;
+  clearPhoto: boolean;
 };
 type OrderLine = {
   key: string;
@@ -71,6 +74,8 @@ function emptyDrug(reorderLevel = "10"): DrugDraft {
     expiryDate: "",
     batchNumber: "",
     supplier: "",
+    photoData: "",
+    clearPhoto: false,
   };
 }
 
@@ -88,6 +93,8 @@ function draftFromDrug(drug: Drug): DrugDraft {
     expiryDate: drug.expiryDate,
     batchNumber: drug.batchNumber,
     supplier: drug.supplier,
+    photoData: "",
+    clearPhoto: false,
   };
 }
 
@@ -320,7 +327,7 @@ export function InventoryScreen() {
             setPending(false);
             return;
           }
-          const body = {
+          const body: Record<string, unknown> = {
             name: draft.name,
             genericName: draft.genericName,
             category: draft.category,
@@ -333,6 +340,8 @@ export function InventoryScreen() {
             batchNumber: draft.batchNumber,
             supplier: draft.supplier,
           };
+          if (draft.photoData) body.photo = draft.photoData;
+          else if (editing && draft.clearPhoto) body.photo = null;
           try {
             if (editing) {
               await api(`/api/drugs/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -505,10 +514,22 @@ function Shelf({
                 return (
                   <tr key={drug.id} className="border-t border-line">
                     <td className="px-4 py-3">
-                      <p className="font-medium">{drug.name}</p>
-                      <p className="text-xs text-muted">
-                        {drug.strength} {drug.form} · {drug.sku}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        {drug.hasPhoto ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={`/api/drugs/${drug.id}/photo`}
+                            alt=""
+                            className="size-10 shrink-0 rounded-lg object-cover"
+                          />
+                        ) : null}
+                        <div>
+                          <p className="font-medium">{drug.name}</p>
+                          <p className="text-xs text-muted">
+                            {drug.strength} {drug.form} · {drug.sku}
+                          </p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -654,6 +675,9 @@ function DrugDialog({
 }) {
   const [draft, setDraft] = useState<DrugDraft>(() => (drug ? draftFromDrug(drug) : emptyDrug(defaultReorder)));
   const [movements, setMovements] = useState<Movement[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const existingPhoto = drug?.hasPhoto && !draft.clearPhoto ? `/api/drugs/${drug.id}/photo` : "";
+  const preview = draft.photoData || existingPhoto;
 
   useEffect(() => {
     if (!drug) return;
@@ -691,6 +715,50 @@ function DrugDialog({
           }}
         >
           {error ? <div className="sm:col-span-2"><Notice>{error}</Notice></div> : null}
+          <div className="space-y-2 sm:col-span-2">
+            <span className="text-sm font-medium">Photo</span>
+            <div className="flex items-center gap-3">
+              {preview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview} alt="" className="size-16 rounded-lg object-cover" />
+              ) : (
+                <div className="flex size-16 items-center justify-center rounded-lg border border-dashed border-line text-xs text-muted">
+                  None
+                </div>
+              )}
+              <div className="space-y-1">
+                <label className="inline-flex cursor-pointer items-center rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm">
+                  {preview ? "Change photo" : "Add photo"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      setPhotoError(null);
+                      void compressPhoto(file)
+                        .then((photoData) => setDraft((current) => ({ ...current, photoData, clearPhoto: false })))
+                        .catch((caught: unknown) => {
+                          setPhotoError(caught instanceof Error ? caught.message : "Could not read that photo.");
+                        });
+                    }}
+                  />
+                </label>
+                {preview ? (
+                  <button
+                    type="button"
+                    className="block text-sm text-muted hover:text-ink"
+                    onClick={() => setDraft((current) => ({ ...current, photoData: "", clearPhoto: true }))}
+                  >
+                    Remove photo
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {photoError ? <p className="text-sm text-clay">{photoError}</p> : null}
+          </div>
           <label className="space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Name</span>
             <Input value={draft.name} onChange={(event) => set("name", event.target.value)} required />

@@ -6,7 +6,8 @@ import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
 import { formatRwf, formatWhen } from "@/lib/format";
 import { kigaliToday } from "@/lib/time";
-import type { Drug, Prescription } from "@/lib/types";
+import type { Drug, PaymentReceipt, Prescription } from "@/lib/types";
+import { ReceiptDialog } from "./receipt-slip";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -54,6 +55,7 @@ export function PrescriptionsScreen() {
   const [pending, setPending] = useState(false);
   const [methods, setMethods] = useState<Tender[]>([]);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
+  const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
   const today = kigaliToday();
 
   async function load() {
@@ -146,10 +148,12 @@ export function PrescriptionsScreen() {
         setPending(false);
         return;
       }
-      await api(`/api/prescriptions/${id}/dispense`, {
+      const result = await api<{ receipt: PaymentReceipt }>(`/api/prescriptions/${id}/dispense`, {
         method: "POST",
         body: JSON.stringify({ paymentMethodId }),
       });
+      setActive(null);
+      setReceipt(result.receipt);
       toast.success("Dispensed. The shelf quantities have been reduced.");
       await load();
     } catch (caught) {
@@ -394,6 +398,7 @@ export function PrescriptionsScreen() {
           ) : null}
         </DialogContent>
       </Dialog>
+      <ReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 }

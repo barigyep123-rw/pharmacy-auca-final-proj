@@ -6,13 +6,34 @@ import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
 import { formatRwf, formatWhen } from "@/lib/format";
 import { kigaliToday } from "@/lib/time";
-import type { Drug, Sale } from "@/lib/types";
+import type { Drug, PaymentReceipt, Sale } from "@/lib/types";
+import { ReceiptDialog } from "./receipt-slip";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
 type Tender = { id: number; name: string; settlesImmediately: boolean };
+
+function slipFromSale(sale: Sale): PaymentReceipt {
+  return {
+    numbers: sale.receiptNumber ? [sale.receiptNumber] : [],
+    issuedAt: sale.createdAt,
+    customerName: sale.customerName,
+    sellerName: sale.sellerName,
+    paymentMethodName: sale.paymentMethodName,
+    settlesImmediately: sale.settlesImmediately,
+    lines: [
+      {
+        name: sale.drugName,
+        strength: sale.strength,
+        quantity: sale.quantity,
+        unitPrice: sale.unitPrice,
+        total: sale.total,
+      },
+    ],
+  };
+}
 
 function party(sale: Sale) {
   if (sale.prescriptionId) return `Prescription #${sale.prescriptionId}`;
@@ -31,6 +52,7 @@ export function SalesScreen() {
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
 
   async function load() {
     const [drugResult, saleResult, methodResult] = await Promise.all([
@@ -95,10 +117,11 @@ export function SalesScreen() {
     }
     setPending(true);
     try {
-      await api("/api/sales", {
+      const result = await api<{ sale: { receipt: PaymentReceipt } }>("/api/sales", {
         method: "POST",
         body: JSON.stringify({ drugId: selected.id, quantity: qty, customerName, paymentMethodId }),
       });
+      setReceipt(result.sale.receipt);
       toast.success(`${qty} × ${selected.name} recorded. Stock updated.`);
       setQuantity("1");
       setCustomerName("");
@@ -233,6 +256,11 @@ export function SalesScreen() {
                       <td className="px-3 py-2.5">
                         {sale.paymentMethodName || "—"}
                         {sale.receiptNumber ? <span className="block text-xs text-muted">{sale.receiptNumber}</span> : null}
+                        {sale.receiptNumber ? (
+                          <button type="button" className="text-xs text-pine hover:underline" onClick={() => setReceipt(slipFromSale(sale))}>
+                            Print
+                          </button>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{sale.quantity}</td>
                       <td className="py-2.5 pl-3 text-right tabular-nums whitespace-nowrap">{formatRwf(sale.total)}</td>
@@ -244,6 +272,7 @@ export function SalesScreen() {
           )}
         </Card>
       </div>
+      <ReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 }

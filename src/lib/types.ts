@@ -25,6 +25,7 @@ export type Drug = {
   low: boolean;
   expired: boolean;
   expiringSoon: boolean;
+  hasPhoto: boolean;
 };
 
 export type Movement = {
@@ -48,6 +49,25 @@ export type Sale = {
   createdAt: string;
   receiptNumber: string;
   paymentMethodName: string;
+  settlesImmediately: boolean;
+};
+
+export type ReceiptLine = {
+  name: string;
+  strength: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+};
+
+export type PaymentReceipt = {
+  numbers: string[];
+  issuedAt: string;
+  customerName: string;
+  sellerName: string;
+  paymentMethodName: string;
+  settlesImmediately: boolean;
+  lines: ReceiptLine[];
 };
 
 export type PrescriptionItem = {

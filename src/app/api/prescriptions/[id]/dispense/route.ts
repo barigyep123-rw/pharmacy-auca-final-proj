@@ -12,8 +12,8 @@ export async function POST(request: Request, context: Context) {
     assertAccess(user.role, "prescriptions");
     const body = parseBody(dispenseSchema, await readJson(request));
     const { id } = await context.params;
-    await dispensePrescription(user, takeId(id), body.paymentMethodId);
-    return json({ ok: true });
+    const receipt = await dispensePrescription(user, takeId(id), body.paymentMethodId);
+    return json({ receipt });
   } catch (error) {
     return fail(error);
   }

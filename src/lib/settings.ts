@@ -364,8 +364,8 @@ export async function stampSale(
         `select id from payment_methods where code = 'cash' and active limit 1`,
       )
     )[0]?.id;
-  const [chosen] = await query<{ id: number; active: boolean }>(
-    `select id, active from payment_methods where id = $1`,
+  const [chosen] = await query<{ id: number; active: boolean; name: string; settles_immediately: boolean }>(
+    `select id, active, name, settles_immediately from payment_methods where id = $1`,
     [methodId],
   );
   if (!chosen || !chosen.active) throw new ApiError(400, "Choose an active payment method.");
@@ -375,6 +375,8 @@ export async function stampSale(
   return {
     total: saleTotal(input.unitPrice, input.quantity, current),
     paymentMethodId: num(chosen.id),
+    paymentMethodName: chosen.name,
+    settlesImmediately: chosen.settles_immediately,
     currencyId: num(currencyRow.id),
     receiptNumber,
   };

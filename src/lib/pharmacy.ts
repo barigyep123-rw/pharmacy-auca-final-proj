@@ -1,4 +1,5 @@
 import { assertAccess, can } from "./access";
+import { decodePhoto, photoBytes } from "./photo";
 import { stampSale } from "./settings";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
@@ -8,6 +9,7 @@ import type {
   DashboardData,
   Drug,
   Movement,
+  PaymentReceipt,
   Prescription,
   PrescriptionItem,
   PurchaseItem,
@@ -33,12 +35,14 @@ type DrugRow = {
   batch_number: string;
   supplier: string;
   on_order: number | null;
+  has_photo?: boolean;
 };
 
 const drugSelect = `
   select
     d.id, d.name, d.generic_name, d.category, d.form, d.strength, d.sku,
     d.unit_price, d.quantity, d.reorder_level, d.expiry_date, d.batch_number, d.supplier,
+    (d.photo is not null) as has_photo,
     coalesce(o.on_order, 0)::int as on_order
   from drugs d
   left join (
@@ -84,6 +88,7 @@ function toDrug(row: DrugRow, today = kigaliToday()): Drug {
     low: quantity <= reorderLevel,
     expired: expiryDate < today,
     expiringSoon: expiryDate >= today && expiryDate <= soon,
+    hasPhoto: row.has_photo === true,
   };
 }
 
@@ -175,14 +180,30 @@ export async function getDrug(id: number): Promise<{ drug: Drug; movements: Move
   };
 }
 
+function storedPhoto(value: string | null | undefined) {
+  if (!value) return { bytes: null, type: "" };
+  const photo = decodePhoto(value);
+  return { bytes: photo.bytes, type: photo.type };
+}
+
+export async function getDrugPhoto(id: number): Promise<{ bytes: Uint8Array; type: string } | null> {
+  const [row] = await sql<{ photo: unknown; photo_type: string }>(
+    `select photo, photo_type from drugs where id = $1`,
+    [id],
+  );
+  if (!row || row.photo == null) return null;
+  return { bytes: photoBytes(row.photo), type: text(row.photo_type) || "image/jpeg" };
+}
+
 export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
   assertAccess(user.role, "inventory");
+  const photo = storedPhoto(input.photo);
   try {
     const [row] = await sql<{ id: number }>(
       `insert into drugs (
         name, generic_name, category, form, strength, sku, unit_price, quantity,
-        reorder_level, expiry_date, batch_number, supplier
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        reorder_level, expiry_date, batch_number, supplier, photo, photo_type
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       returning id`,
       [
         input.name,
@@ -197,6 +218,8 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
         input.expiryDate,
         input.batchNumber,
         input.supplier,
+        photo.bytes,
+        photo.type,
       ],
     );
     return (await getDrug(row.id)).drug;
@@ -232,6 +255,10 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
       ],
     );
     if (!row) throw new ApiError(404, "That drug is no longer in the catalog.");
+    if (input.photo !== undefined) {
+      const photo = storedPhoto(input.photo);
+      await sql(`update drugs set photo = $1, photo_type = $2 where id = $3`, [photo.bytes, photo.type, id]);
+    }
     return (await getDrug(id)).drug;
   } catch (error) {
     if (isUniqueViolation(error)) throw new ApiError(409, "That SKU is already in the catalog.");
@@ -260,7 +287,8 @@ export async function listSales(): Promise<Sale[]> {
   const rows = await sql(
     `select s.id, s.drug_id, d.name as drug_name, d.strength, s.quantity, s.unit_price, s.total,
             s.customer_name, u.name as seller_name, s.prescription_id, s.created_at,
-            s.receipt_number, coalesce(m.name, '') as payment_method_name
+            s.receipt_number, coalesce(m.name, '') as payment_method_name,
+            coalesce(m.settles_immediately, true) as settles_immediately
      from sales s
      join drugs d on d.id = s.drug_id
      join users u on u.id = s.sold_by
@@ -282,6 +310,7 @@ export async function listSales(): Promise<Sale[]> {
     createdAt: text(row.created_at),
     receiptNumber: text(row.receipt_number),
     paymentMethodName: text(row.payment_method_name),
+    settlesImmediately: row.settles_immediately !== false,
   }));
 }
 
@@ -299,12 +328,12 @@ export async function recordSale(user: Staff, input: SaleInput) {
       quantity: input.quantity,
       paymentMethodId: input.paymentMethodId,
     });
-    const [sale] = await query<{ id: number }>(
+    const [sale] = await query<{ id: number; created_at: unknown }>(
       `insert into sales (
          drug_id, quantity, unit_price, total, customer_name, sold_by,
          payment_method_id, currency_id, receipt_number
        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       returning id`,
+       returning id, created_at`,
       [
         input.drugId,
         input.quantity,
@@ -317,10 +346,28 @@ export async function recordSale(user: Staff, input: SaleInput) {
         priced.receiptNumber,
       ],
     );
+    const receipt: PaymentReceipt = {
+      numbers: [priced.receiptNumber],
+      issuedAt: text(sale.created_at),
+      customerName: input.customerName,
+      sellerName: user.name,
+      paymentMethodName: priced.paymentMethodName,
+      settlesImmediately: priced.settlesImmediately,
+      lines: [
+        {
+          name: text(drug.name),
+          strength: text(drug.strength),
+          quantity: input.quantity,
+          unitPrice: num(drug.unit_price),
+          total: priced.total,
+        },
+      ],
+    };
     return {
       id: num(sale.id),
       total: priced.total,
       quantityLeft: num(drug.quantity) - input.quantity,
+      receipt,
     };
   });
 }
@@ -417,11 +464,11 @@ export async function createPrescription(user: Staff, input: PrescriptionInput):
   return created;
 }
 
-export async function dispensePrescription(user: Staff, id: number, paymentMethodId?: number) {
+export async function dispensePrescription(user: Staff, id: number, paymentMethodId?: number): Promise<PaymentReceipt> {
   assertAccess(user.role, "prescriptions");
-  await withTransaction(async (query) => {
-    const [prescription] = await query<{ id: number; status: string }>(
-      `select id, status from prescriptions where id = $1 for update`,
+  return withTransaction(async (query) => {
+    const [prescription] = await query<{ id: number; status: string; patient_name: string }>(
+      `select id, status, patient_name from prescriptions where id = $1 for update`,
       [id],
     );
     if (!prescription) throw new ApiError(404, "Prescription not found.");
@@ -433,6 +480,15 @@ export async function dispensePrescription(user: Staff, id: number, paymentMetho
       [id],
     );
     if (items.length === 0) throw new ApiError(409, "This prescription has no drugs.");
+    const receipt: PaymentReceipt = {
+      numbers: [],
+      issuedAt: "",
+      customerName: text(prescription.patient_name),
+      sellerName: user.name,
+      paymentMethodName: "",
+      settlesImmediately: true,
+      lines: [],
+    };
     for (const item of items) {
       const drug = await lockDrug(query, num(item.drug_id));
       assertSellable(drug, num(item.quantity));
@@ -445,17 +501,18 @@ export async function dispensePrescription(user: Staff, id: number, paymentMetho
         quantity: num(item.quantity),
         paymentMethodId,
       });
-      await query(
+      const [sale] = await query<{ created_at: unknown }>(
         `insert into sales (
            drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id,
            payment_method_id, currency_id, receipt_number
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         returning created_at`,
         [
           num(item.drug_id),
           num(item.quantity),
           num(item.unit_price),
           priced.total,
-          "",
+          text(prescription.patient_name),
           user.id,
           id,
           priced.paymentMethodId,
@@ -463,11 +520,23 @@ export async function dispensePrescription(user: Staff, id: number, paymentMetho
           priced.receiptNumber,
         ],
       );
+      if (!receipt.issuedAt) receipt.issuedAt = text(sale.created_at);
+      receipt.numbers.push(priced.receiptNumber);
+      receipt.paymentMethodName = priced.paymentMethodName;
+      receipt.settlesImmediately = priced.settlesImmediately;
+      receipt.lines.push({
+        name: text(drug.name),
+        strength: text(drug.strength),
+        quantity: num(item.quantity),
+        unitPrice: num(item.unit_price),
+        total: priced.total,
+      });
     }
     await query(
       `update prescriptions set status = 'dispensed', dispensed_by = $1, dispensed_at = now() where id = $2`,
       [user.id, id],
     );
+    return receipt;
   });
 }
 

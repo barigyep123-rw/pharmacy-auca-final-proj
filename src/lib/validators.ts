@@ -31,9 +31,12 @@ export const drugInputSchema = z.object({
   expiryDate: dateText,
   batchNumber: optionalText(40),
   supplier: optionalText(80),
+  photo: z.string().trim().max(900_000, "That photo is too large.").optional(),
 });
 
-export const drugUpdateSchema = drugInputSchema.omit({ openingQuantity: true });
+export const drugUpdateSchema = drugInputSchema.omit({ openingQuantity: true, photo: true }).extend({
+  photo: z.string().trim().max(900_000, "That photo is too large.").nullable().optional(),
+});
 
 export const saleSchema = z.object({
   drugId: z.number().int().positive(),
