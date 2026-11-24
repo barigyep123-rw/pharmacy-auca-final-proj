@@ -25,6 +25,8 @@ const filters: Array<{ id: Filter; label: string }> = [
   { id: "cancelled", label: "Cancelled" },
 ];
 
+type Tender = { id: number; name: string; settlesImmediately: boolean };
+
 function blankLine(): Line {
   return { key: crypto.randomUUID(), drugId: "", quantity: "1", dosage: "" };
 }
@@ -50,15 +52,20 @@ export function PrescriptionsScreen() {
   const [lines, setLines] = useState<Line[]>([{ key: "line-1", drugId: "", quantity: "1", dosage: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [methods, setMethods] = useState<Tender[]>([]);
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
   const today = kigaliToday();
 
   async function load() {
-    const [prescriptions, catalog] = await Promise.all([
+    const [prescriptions, catalog, tenders] = await Promise.all([
       api<{ prescriptions: Prescription[] }>("/api/prescriptions"),
       api<{ drugs: Drug[] }>("/api/drugs"),
+      api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
     ]);
     setRows(prescriptions.prescriptions);
     setDrugs(catalog.drugs);
+    setMethods(tenders.methods);
+    setPaymentMethodId((current) => current ?? tenders.methods[0]?.id ?? null);
     setActive((current) =>
       current ? prescriptions.prescriptions.find((item) => item.id === current.id) ?? null : null,
     );
@@ -69,11 +76,14 @@ export function PrescriptionsScreen() {
     Promise.all([
       api<{ prescriptions: Prescription[] }>("/api/prescriptions"),
       api<{ drugs: Drug[] }>("/api/drugs"),
+      api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
     ])
-      .then(([prescriptions, catalog]) => {
+      .then(([prescriptions, catalog, tenders]) => {
         if (cancel) return;
         setRows(prescriptions.prescriptions);
         setDrugs(catalog.drugs);
+        setMethods(tenders.methods);
+        setPaymentMethodId((current) => current ?? tenders.methods[0]?.id ?? null);
       })
       .catch((caught: unknown) => {
         if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load prescriptions.");
@@ -131,7 +141,15 @@ export function PrescriptionsScreen() {
   async function dispense(id: number) {
     setPending(true);
     try {
-      await api(`/api/prescriptions/${id}/dispense`, { method: "POST", body: "{}" });
+      if (!paymentMethodId) {
+        toast.error("Choose how the customer is paying.");
+        setPending(false);
+        return;
+      }
+      await api(`/api/prescriptions/${id}/dispense`, {
+        method: "POST",
+        body: JSON.stringify({ paymentMethodId }),
+      });
       toast.success("Dispensed. The shelf quantities have been reduced.");
       await load();
     } catch (caught) {
@@ -345,6 +363,20 @@ export function PrescriptionsScreen() {
               </ul>
               {active.status === "pending" ? (
                 <DialogFooter>
+                  <label className="mr-auto flex items-center gap-2 text-sm">
+                    <span className="text-muted">Payment</span>
+                    <select
+                      className="h-9 rounded-lg border border-line bg-paper-2 px-2"
+                      value={paymentMethodId ?? ""}
+                      onChange={(event) => setPaymentMethodId(Number(event.target.value))}
+                    >
+                      {methods.map((method) => (
+                        <option key={method.id} value={method.id}>
+                          {method.name}{method.settlesImmediately ? "" : " · on account"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <Button variant="quiet" disabled={pending} onClick={() => void cancel(active.id)}>
                     Cancel script
                   </Button>

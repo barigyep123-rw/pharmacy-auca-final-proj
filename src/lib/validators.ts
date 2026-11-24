@@ -39,6 +39,11 @@ export const saleSchema = z.object({
   drugId: z.number().int().positive(),
   quantity: z.number().int().min(1, "Quantity must be at least 1.").max(5_000),
   customerName: optionalText(80),
+  paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
+});
+
+export const dispenseSchema = z.object({
+  paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
 });
 
 const prescriptionLine = z.object({
@@ -67,6 +72,69 @@ export const purchaseOrderSchema = z.object({
   supplierName: z.string().trim().min(2, "Enter the supplier.").max(80),
   notes: optionalText(500),
   items: z.array(orderLine).min(1, "Add at least one drug.").max(20),
+});
+
+const currencyCode = z
+  .string()
+  .trim()
+  .min(3, "Use a 3-letter currency code.")
+  .max(3)
+  .transform((value) => value.toUpperCase());
+
+const methodCode = z
+  .string()
+  .trim()
+  .min(2, "Enter a short code.")
+  .max(32)
+  .transform((value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""))
+  .refine((value) => value.length >= 2, "Enter a short code.");
+
+export const currencySchema = z.object({
+  code: currencyCode,
+  name: z.string().trim().min(2, "Enter the currency name.").max(40),
+  symbol: z.string().trim().min(1, "Enter a symbol.").max(8),
+  isDefault: z.boolean().optional().default(false),
+});
+
+export const currencyUpdateSchema = z.object({
+  name: z.string().trim().min(2, "Enter the currency name.").max(40),
+  symbol: z.string().trim().min(1, "Enter a symbol.").max(8),
+  isDefault: z.boolean(),
+  active: z.boolean(),
+});
+
+export const paymentMethodSchema = z.object({
+  code: methodCode,
+  name: z.string().trim().min(2, "Enter the method name.").max(40),
+  kind: z.enum(["cash", "mobile_money", "card", "credit", "custom"]),
+  settlesImmediately: z.boolean().optional().default(true),
+});
+
+export const paymentMethodUpdateSchema = z.object({
+  name: z.string().trim().min(2, "Enter the method name.").max(40),
+  kind: z.enum(["cash", "mobile_money", "card", "credit", "custom"]),
+  settlesImmediately: z.boolean(),
+  active: z.boolean(),
+  sortOrder: z.number().int().min(0).max(1000),
+});
+
+export const businessSchema = z.object({
+  name: z.string().trim().min(2, "Enter the pharmacy name.").max(80),
+  phone: optionalText(24),
+  email: optionalText(80),
+  address: optionalText(120),
+  receiptPrefix: z
+    .string()
+    .trim()
+    .min(1, "Enter a receipt prefix.")
+    .max(8)
+    .transform((value) => value.toUpperCase().replace(/[^A-Z0-9]/g, "")),
+  receiptPadding: z.number().int().min(1).max(8),
+  taxRateBps: z.number().int().min(0).max(10_000),
+  pricesIncludeTax: z.boolean(),
+  defaultDiscountBps: z.number().int().min(0).max(10_000),
+  allowLineDiscount: z.boolean(),
+  defaultReorderLevel: z.number().int().min(0).max(100_000),
 });
 
 export const supplierSchema = z.object({

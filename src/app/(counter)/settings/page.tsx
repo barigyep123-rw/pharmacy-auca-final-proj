@@ -1,11 +1,5 @@
-import type { Metadata } from "next";
-import { SettingsScreen } from "@/components/settings-screen";
-import { guard } from "@/lib/guard";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Settings" };
-export const instant = false;
-
-export default async function SettingsPage() {
-  await guard("settings");
-  return <SettingsScreen />;
+export default function SettingsIndex() {
+  redirect("/settings/staff");
 }

@@ -57,7 +57,7 @@ const orderFilters: Array<{ id: OrderFilter; label: string }> = [
   { id: "cancelled", label: "Cancelled" },
 ];
 
-function emptyDrug(): DrugDraft {
+function emptyDrug(reorderLevel = "10"): DrugDraft {
   return {
     name: "",
     genericName: "",
@@ -67,7 +67,7 @@ function emptyDrug(): DrugDraft {
     sku: "",
     unitPrice: "",
     openingQuantity: "0",
-    reorderLevel: "10",
+    reorderLevel,
     expiryDate: "",
     batchNumber: "",
     supplier: "",
@@ -108,16 +108,18 @@ function selectClass() {
 }
 
 async function readInventory(includeOrders: boolean) {
-  const [catalog, purchase, saved] = await Promise.all([
+  const [catalog, purchase, saved, savedProfile] = await Promise.all([
     api<{ drugs: Drug[] }>("/api/drugs"),
     includeOrders
       ? api<{ orders: PurchaseOrder[] }>("/api/purchase-orders")
       : Promise.resolve({ orders: [] as PurchaseOrder[] }),
     api<{ suppliers: string[] }>("/api/suppliers").catch(() => ({ suppliers: [] as string[] })),
+    api<{ profile: { defaultReorderLevel: number } }>("/api/business").catch(() => null),
   ]);
   return {
     drugs: catalog.drugs,
     orders: purchase.orders,
+    defaultReorder: savedProfile ? String(savedProfile.profile.defaultReorderLevel) : "10",
     suppliers: mergeSupplierNames([
       ...saved.suppliers,
       ...catalog.drugs.map((drug) => drug.supplier),
@@ -145,12 +147,14 @@ export function InventoryScreen() {
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [defaultReorder, setDefaultReorder] = useState("10");
 
   async function load() {
     const next = await readInventory(manageOrders);
     setDrugs(next.drugs);
     setOrders(next.orders);
     setSuppliers(next.suppliers);
+    setDefaultReorder(next.defaultReorder);
   }
 
   function rememberSupplier(name: string) {
@@ -166,6 +170,7 @@ export function InventoryScreen() {
         setDrugs(next.drugs);
         setOrders(next.orders);
         setSuppliers(next.suppliers);
+        setDefaultReorder(next.defaultReorder);
       })
       .catch((caught: unknown) => {
         if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load inventory.");
@@ -299,6 +304,7 @@ export function InventoryScreen() {
         drug={editing === undefined ? null : editing}
         suppliers={suppliers}
         canCreateSupplier={manageOrders}
+        defaultReorder={defaultReorder}
         error={formError}
         pending={pending}
         onSupplierCreated={rememberSupplier}
@@ -628,6 +634,7 @@ function DrugDialog({
   open,
   suppliers,
   canCreateSupplier,
+  defaultReorder,
   error,
   pending,
   onSupplierCreated,
@@ -638,13 +645,14 @@ function DrugDialog({
   open: boolean;
   suppliers: string[];
   canCreateSupplier: boolean;
+  defaultReorder: string;
   error: string | null;
   pending: boolean;
   onSupplierCreated: (name: string) => void;
   onClose: () => void;
   onSubmit: (draft: DrugDraft) => void;
 }) {
-  const [draft, setDraft] = useState<DrugDraft>(() => (drug ? draftFromDrug(drug) : emptyDrug()));
+  const [draft, setDraft] = useState<DrugDraft>(() => (drug ? draftFromDrug(drug) : emptyDrug(defaultReorder)));
   const [movements, setMovements] = useState<Movement[]>([]);
 
   useEffect(() => {

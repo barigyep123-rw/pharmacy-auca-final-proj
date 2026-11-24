@@ -39,7 +39,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
   const nav = (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
       {links.filter((link) => can(user.role, link.area)).map((link) => {
-        const active = pathname === link.href;
+        const active = link.href === "/settings" ? pathname.startsWith("/settings") : pathname === link.href;
         const Icon = link.icon;
         return (
           <Link

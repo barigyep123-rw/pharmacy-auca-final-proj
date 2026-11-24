@@ -46,6 +46,8 @@ export type Sale = {
   sellerName: string;
   prescriptionId: number | null;
   createdAt: string;
+  receiptNumber: string;
+  paymentMethodName: string;
 };
 
 export type PrescriptionItem = {

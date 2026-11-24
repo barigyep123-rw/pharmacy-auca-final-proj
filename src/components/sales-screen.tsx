@@ -12,6 +12,8 @@ import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
+type Tender = { id: number; name: string; settlesImmediately: boolean };
+
 function party(sale: Sale) {
   if (sale.prescriptionId) return `Prescription #${sale.prescriptionId}`;
   return sale.customerName || "Walk-in";
@@ -25,25 +27,36 @@ export function SalesScreen() {
   const [drugId, setDrugId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [customerName, setCustomerName] = useState("");
+  const [methods, setMethods] = useState<Tender[]>([]);
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   async function load() {
-    const [drugResult, saleResult] = await Promise.all([
+    const [drugResult, saleResult, methodResult] = await Promise.all([
       api<{ drugs: Drug[] }>("/api/drugs"),
       api<{ sales: Sale[] }>("/api/sales"),
+      api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
     ]);
     setDrugs(drugResult.drugs);
     setSales(saleResult.sales);
+    setMethods(methodResult.methods);
+    setPaymentMethodId((current) => current ?? methodResult.methods[0]?.id ?? null);
   }
 
   useEffect(() => {
     let cancel = false;
-    Promise.all([api<{ drugs: Drug[] }>("/api/drugs"), api<{ sales: Sale[] }>("/api/sales")])
-      .then(([drugResult, saleResult]) => {
+    Promise.all([
+      api<{ drugs: Drug[] }>("/api/drugs"),
+      api<{ sales: Sale[] }>("/api/sales"),
+      api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
+    ])
+      .then(([drugResult, saleResult, methodResult]) => {
         if (cancel) return;
         setDrugs(drugResult.drugs);
         setSales(saleResult.sales);
+        setMethods(methodResult.methods);
+        setPaymentMethodId((current) => current ?? methodResult.methods[0]?.id ?? null);
       })
       .catch((caught: unknown) => {
         if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load sales.");
@@ -76,11 +89,15 @@ export function SalesScreen() {
       setFormError("Enter a quantity of at least 1.");
       return;
     }
+    if (!paymentMethodId) {
+      setFormError("Choose how the customer is paying.");
+      return;
+    }
     setPending(true);
     try {
       await api("/api/sales", {
         method: "POST",
-        body: JSON.stringify({ drugId: selected.id, quantity: qty, customerName }),
+        body: JSON.stringify({ drugId: selected.id, quantity: qty, customerName, paymentMethodId }),
       });
       toast.success(`${qty} × ${selected.name} recorded. Stock updated.`);
       setQuantity("1");
@@ -156,6 +173,20 @@ export function SalesScreen() {
               />
             </label>
             <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Payment</span>
+              <select
+                className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
+                value={paymentMethodId ?? ""}
+                onChange={(event) => setPaymentMethodId(Number(event.target.value))}
+              >
+                {methods.map((method) => (
+                  <option key={method.id} value={method.id}>
+                    {method.name}{method.settlesImmediately ? "" : " · on account"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1.5">
               <span className="text-sm font-medium">Customer</span>
               <Input
                 value={customerName}
@@ -185,6 +216,7 @@ export function SalesScreen() {
                     <th className="px-3 py-2 font-medium">Drug</th>
                     <th className="px-3 py-2 font-medium">For</th>
                     <th className="px-3 py-2 font-medium">Sold by</th>
+                    <th className="px-3 py-2 font-medium">Payment</th>
                     <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty</th>
                     <th className="py-2 pl-3 text-right font-medium whitespace-nowrap">Total</th>
                   </tr>
@@ -198,6 +230,10 @@ export function SalesScreen() {
                       </td>
                       <td className="px-3 py-2.5">{party(sale)}</td>
                       <td className="px-3 py-2.5">{sale.sellerName}</td>
+                      <td className="px-3 py-2.5">
+                        {sale.paymentMethodName || "—"}
+                        {sale.receiptNumber ? <span className="block text-xs text-muted">{sale.receiptNumber}</span> : null}
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{sale.quantity}</td>
                       <td className="py-2.5 pl-3 text-right tabular-nums whitespace-nowrap">{formatRwf(sale.total)}</td>
                     </tr>

@@ -1,4 +1,5 @@
 import { assertAccess, can } from "./access";
+import { stampSale } from "./settings";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
@@ -258,10 +259,12 @@ export async function deleteDrug(user: Staff, id: number) {
 export async function listSales(): Promise<Sale[]> {
   const rows = await sql(
     `select s.id, s.drug_id, d.name as drug_name, d.strength, s.quantity, s.unit_price, s.total,
-            s.customer_name, u.name as seller_name, s.prescription_id, s.created_at
+            s.customer_name, u.name as seller_name, s.prescription_id, s.created_at,
+            s.receipt_number, coalesce(m.name, '') as payment_method_name
      from sales s
      join drugs d on d.id = s.drug_id
      join users u on u.id = s.sold_by
+     left join payment_methods m on m.id = s.payment_method_id
      order by s.created_at desc
      limit 80`,
   );
@@ -277,6 +280,8 @@ export async function listSales(): Promise<Sale[]> {
     sellerName: text(row.seller_name),
     prescriptionId: row.prescription_id == null ? null : num(row.prescription_id),
     createdAt: text(row.created_at),
+    receiptNumber: text(row.receipt_number),
+    paymentMethodName: text(row.payment_method_name),
   }));
 }
 
@@ -289,16 +294,32 @@ export async function recordSale(user: Staff, input: SaleInput) {
       input.quantity,
       input.drugId,
     ]);
-    const total = num(drug.unit_price) * input.quantity;
+    const priced = await stampSale(query, {
+      unitPrice: num(drug.unit_price),
+      quantity: input.quantity,
+      paymentMethodId: input.paymentMethodId,
+    });
     const [sale] = await query<{ id: number }>(
-      `insert into sales (drug_id, quantity, unit_price, total, customer_name, sold_by)
-       values ($1, $2, $3, $4, $5, $6)
+      `insert into sales (
+         drug_id, quantity, unit_price, total, customer_name, sold_by,
+         payment_method_id, currency_id, receipt_number
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        returning id`,
-      [input.drugId, input.quantity, num(drug.unit_price), total, input.customerName, user.id],
+      [
+        input.drugId,
+        input.quantity,
+        num(drug.unit_price),
+        priced.total,
+        input.customerName,
+        user.id,
+        priced.paymentMethodId,
+        priced.currencyId,
+        priced.receiptNumber,
+      ],
     );
     return {
       id: num(sale.id),
-      total,
+      total: priced.total,
       quantityLeft: num(drug.quantity) - input.quantity,
     };
   });
@@ -396,7 +417,7 @@ export async function createPrescription(user: Staff, input: PrescriptionInput):
   return created;
 }
 
-export async function dispensePrescription(user: Staff, id: number) {
+export async function dispensePrescription(user: Staff, id: number, paymentMethodId?: number) {
   assertAccess(user.role, "prescriptions");
   await withTransaction(async (query) => {
     const [prescription] = await query<{ id: number; status: string }>(
@@ -419,17 +440,27 @@ export async function dispensePrescription(user: Staff, id: number) {
         num(item.quantity),
         num(item.drug_id),
       ]);
+      const priced = await stampSale(query, {
+        unitPrice: num(item.unit_price),
+        quantity: num(item.quantity),
+        paymentMethodId,
+      });
       await query(
-        `insert into sales (drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id)
-         values ($1, $2, $3, $4, $5, $6, $7)`,
+        `insert into sales (
+           drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id,
+           payment_method_id, currency_id, receipt_number
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           num(item.drug_id),
           num(item.quantity),
           num(item.unit_price),
-          num(item.unit_price) * num(item.quantity),
+          priced.total,
           "",
           user.id,
           id,
+          priced.paymentMethodId,
+          priced.currencyId,
+          priced.receiptNumber,
         ],
       );
     }
