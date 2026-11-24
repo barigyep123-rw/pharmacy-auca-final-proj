@@ -49,6 +49,21 @@ export const dispenseSchema = z.object({
   paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
 });
 
+export const invoiceSchema = z.object({
+  supplierName: z.string().trim().min(2, "Enter the supplier.").max(80),
+  invoiceNumber: z.string().trim().min(1, "Enter the invoice number.").max(40),
+  amount: z.number().int().min(0, "Amount cannot be negative.").max(50_000_000),
+  issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a real invoice date."),
+  notes: optionalText(200),
+  purchaseOrderId: z.number().int().positive().nullable().optional(),
+});
+
+export const collectionSchema = z.object({
+  saleId: z.number().int().positive(),
+  amount: z.number().int().min(1, "Enter the amount collected.").max(50_000_000),
+  paymentMethodId: z.number().int().min(1, "Choose how the balance was paid."),
+});
+
 const prescriptionLine = z.object({
   drugId: z.number().int().positive(),
   quantity: z.number().int().min(1, "Quantity must be at least 1.").max(5_000),

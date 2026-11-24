@@ -1,4 +1,5 @@
 import { assertAccess, can } from "./access";
+import { postSettledSale } from "./finance";
 import { decodePhoto, photoBytes } from "./photo";
 import { stampSale } from "./settings";
 import { sql, withTransaction } from "./db";
@@ -346,6 +347,13 @@ export async function recordSale(user: Staff, input: SaleInput) {
         priced.receiptNumber,
       ],
     );
+    await postSettledSale(query, {
+      saleId: num(sale.id),
+      total: priced.total,
+      paymentMethodId: priced.paymentMethodId,
+      settlesImmediately: priced.settlesImmediately,
+      userId: user.id,
+    });
     const receipt: PaymentReceipt = {
       numbers: [priced.receiptNumber],
       issuedAt: text(sale.created_at),
@@ -501,12 +509,12 @@ export async function dispensePrescription(user: Staff, id: number, paymentMetho
         quantity: num(item.quantity),
         paymentMethodId,
       });
-      const [sale] = await query<{ created_at: unknown }>(
+      const [sale] = await query<{ id: number; created_at: unknown }>(
         `insert into sales (
            drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id,
            payment_method_id, currency_id, receipt_number
          ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         returning created_at`,
+         returning id, created_at`,
         [
           num(item.drug_id),
           num(item.quantity),
@@ -520,6 +528,13 @@ export async function dispensePrescription(user: Staff, id: number, paymentMetho
           priced.receiptNumber,
         ],
       );
+      await postSettledSale(query, {
+        saleId: num(sale.id),
+        total: priced.total,
+        paymentMethodId: priced.paymentMethodId,
+        settlesImmediately: priced.settlesImmediately,
+        userId: user.id,
+      });
       if (!receipt.issuedAt) receipt.issuedAt = text(sale.created_at);
       receipt.numbers.push(priced.receiptNumber);
       receipt.paymentMethodName = priced.paymentMethodName;

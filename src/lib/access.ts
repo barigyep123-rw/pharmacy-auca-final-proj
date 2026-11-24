@@ -3,7 +3,16 @@ import type { Role } from "./types";
 
 export const roles = ["admin", "pharmacist", "stock_keeper", "cashier"] as const;
 
-export type Area = "dashboard" | "inventory" | "sales" | "prescriptions" | "orders" | "settings" | "deleteDrug";
+export type Area =
+  | "dashboard"
+  | "inventory"
+  | "sales"
+  | "prescriptions"
+  | "orders"
+  | "settings"
+  | "deleteDrug"
+  | "finance"
+  | "reports";
 
 const matrix: Record<Area, readonly Role[]> = {
   dashboard: ["admin", "pharmacist", "stock_keeper", "cashier"],
@@ -13,6 +22,8 @@ const matrix: Record<Area, readonly Role[]> = {
   orders: ["admin", "stock_keeper"],
   settings: ["admin"],
   deleteDrug: ["admin", "stock_keeper"],
+  finance: ["admin", "pharmacist", "cashier"],
+  reports: ["admin", "pharmacist", "cashier"],
 };
 
 export function can(role: Role, area: Area) {

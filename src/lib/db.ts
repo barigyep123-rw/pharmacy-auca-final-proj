@@ -152,6 +152,9 @@ export async function resetAndSeed() {
   await initDb();
   await sql(
     `truncate table
+      ledger_entries,
+      collections,
+      supplier_invoices,
       sales,
       prescription_items,
       prescriptions,

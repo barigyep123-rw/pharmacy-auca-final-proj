@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, ShoppingBag, X } from "lucide-react";
+import { BarChart3, ClipboardList, Landmark, LayoutDashboard, LogOut, Menu, Package, Settings, ShoppingBag, X } from "lucide-react";
 import { useState } from "react";
 import { can, roleLabel, type Area } from "@/lib/access";
 import { pharmacyPlace, pharmacyShort } from "@/lib/brand";
@@ -15,6 +15,8 @@ const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; 
   { href: "/inventory", label: "Inventory", icon: Package, area: "inventory" },
   { href: "/sales", label: "Sales", icon: ShoppingBag, area: "sales" },
   { href: "/prescriptions", label: "Prescriptions", icon: ClipboardList, area: "prescriptions" },
+  { href: "/finance", label: "Finance", icon: Landmark, area: "finance" },
+  { href: "/reports", label: "Reports", icon: BarChart3, area: "reports" },
   { href: "/settings", label: "Settings", icon: Settings, area: "settings" },
 ];
 
@@ -39,7 +41,10 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
   const nav = (
     <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
       {links.filter((link) => can(user.role, link.area)).map((link) => {
-        const active = link.href === "/settings" ? pathname.startsWith("/settings") : pathname === link.href;
+        const active =
+          link.href === "/settings" || link.href === "/finance" || link.href === "/reports"
+            ? pathname.startsWith(link.href)
+            : pathname === link.href;
         const Icon = link.icon;
         return (
           <Link
