@@ -10,6 +10,7 @@ export default async function SuppliersLayout({ children }: { children: React.Re
   const user = await guard("suppliers");
   const links = [
     { href: "/suppliers", label: "Profiles" },
+    ...(can(user.role, "drafts") ? [{ href: "/orders/drafts", label: "Reorder drafts" }] : []),
     ...(can(user.role, "orders") ? [{ href: "/suppliers/orders", label: "Supplier orders" }] : []),
   ];
   return (

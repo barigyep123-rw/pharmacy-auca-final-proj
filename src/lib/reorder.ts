@@ -21,6 +21,7 @@ export type DraftLine = {
   drugId: number;
   drugName: string;
   strength: string;
+  category: string;
   baseUnit: string;
   packUnit: string;
   unitsPerPack: number;
@@ -53,7 +54,7 @@ async function loadDrafts(ids?: number[]): Promise<DraftOrder[]> {
   if (rows.length === 0) return [];
   const orderIds = rows.map((row) => num(row.id));
   const items = await sql(
-    `select i.order_id, i.drug_id, i.quantity, d.name, d.strength, d.base_unit, d.pack_unit,
+    `select i.order_id, i.drug_id, i.quantity, d.name, d.strength, d.category, d.base_unit, d.pack_unit,
             d.units_per_pack, d.quantity as on_hand, d.reorder_level
      from purchase_order_items i
      join drugs d on d.id = i.drug_id
@@ -77,6 +78,7 @@ async function loadDrafts(ids?: number[]): Promise<DraftOrder[]> {
           drugId: num(item.drug_id),
           drugName: text(item.name),
           strength: text(item.strength),
+          category: text(item.category),
           baseUnit: text(item.base_unit) || "tablet",
           packUnit: text(item.pack_unit) || "box",
           unitsPerPack: per,
@@ -115,7 +117,14 @@ export async function scanReorderDrafts(actor: Staff) {
     }>(
       `select d.id, d.name, d.supplier, d.quantity, d.reorder_level, d.units_per_pack
        from drugs d
-       where d.quantity <= d.reorder_level
+       where (
+           d.quantity <= d.reorder_level
+           or d.quantity < coalesce((
+             select ceil(sum(s.quantity)::numeric / 30 * 14)
+             from sales s
+             where s.drug_id = d.id and s.created_at > now() - interval '30 days'
+           ), 0)
+         )
          and not exists (
            select 1
            from purchase_order_items i
@@ -143,7 +152,14 @@ export async function scanReorderDrafts(actor: Staff) {
       );
       for (const line of lines) {
         const per = Math.max(1, num(line.units_per_pack));
-        const quantity = packsForShortfall(num(line.quantity), num(line.reorder_level), per);
+        const [sold] = await query<{ n: number }>(
+          `select coalesce(sum(quantity), 0)::int as n from sales
+           where drug_id = $1 and created_at > now() - interval '30 days'`,
+          [num(line.id)],
+        );
+        const forecast = Math.ceil((num(sold?.n) / 30) * 14);
+        const target = Math.max(num(line.reorder_level), forecast);
+        const quantity = packsForShortfall(num(line.quantity), target, per);
         await query(
           `insert into purchase_order_items (order_id, drug_id, quantity, unit_cost, entered_packs)
            values ($1, $2, $3, 0, $4)`,

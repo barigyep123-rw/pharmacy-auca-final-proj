@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, ClipboardList, FileText, Landmark, LayoutDashboard, LogOut, Menu, Package, ScrollText, Settings, ShoppingBag, Truck, Users, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { can, roleLabel, type Area } from "@/lib/access";
 import { pharmacyPlace, pharmacyShort } from "@/lib/brand";
 import { api } from "@/lib/api";
@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils";
 const links: Array<{ href: string; label: string; icon: typeof LayoutDashboard; area: Area }> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, area: "dashboard" },
   { href: "/inventory", label: "Inventory", icon: Package, area: "inventory" },
-  { href: "/sales", label: "Sales", icon: ShoppingBag, area: "sales" },
+  { href: "/sales", label: "Counter", icon: ShoppingBag, area: "sales" },
+  { href: "/bills", label: "Bills", icon: FileText, area: "sales" },
   { href: "/prescriptions", label: "Prescriptions", icon: ClipboardList, area: "prescriptions" },
   { href: "/patients", label: "Patients", icon: Users, area: "patients" },
   { href: "/suppliers", label: "Suppliers", icon: Truck, area: "suppliers" },
-  { href: "/orders/drafts", label: "Draft orders", icon: FileText, area: "drafts" },
   { href: "/finance", label: "Finance", icon: Landmark, area: "finance" },
   { href: "/reports", label: "Reports", icon: BarChart3, area: "reports" },
   { href: "/audit", label: "Audit", icon: ScrollText, area: "audit" },
@@ -36,6 +36,21 @@ function Mark({ className }: { className?: string }) {
 export function Shell({ user, children }: { user: Staff; children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [shopName, setShopName] = useState(pharmacyShort);
+
+  useEffect(() => {
+    let cancel = false;
+    api<{ profile: { name: string } }>("/api/business")
+      .then((result) => {
+        if (!cancel && result.profile.name) setShopName(result.profile.name);
+      })
+      .catch(() => {
+        if (!cancel) setShopName(pharmacyShort);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   async function signOut() {
     await api("/api/auth/logout", { method: "POST", body: "{}" });
@@ -51,6 +66,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
           link.href === "/reports" ||
           link.href === "/patients" ||
           link.href === "/suppliers" ||
+          link.href === "/bills" ||
           link.href === "/orders/drafts"
             ? pathname.startsWith(link.href)
             : pathname === link.href;
@@ -80,7 +96,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         <div className="flex items-center gap-3 px-5 pt-6">
           <Mark className="size-8 text-brass" />
           <div>
-            <p className="font-serif text-xl leading-none">{pharmacyShort}</p>
+            <p className="font-serif text-xl leading-none">{shopName}</p>
             <p className="mt-1 text-xs text-paper-2/60">{pharmacyPlace}</p>
           </div>
         </div>
@@ -103,7 +119,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         <header className="flex items-center justify-between border-b border-line bg-card px-4 py-3 md:hidden">
           <div className="flex items-center gap-2">
             <Mark className="size-7 text-brass" />
-            <span className="font-serif text-lg">{pharmacyShort}</span>
+            <span className="font-serif text-lg">{shopName}</span>
           </div>
           <button
             type="button"

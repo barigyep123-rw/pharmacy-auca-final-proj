@@ -11,6 +11,7 @@ export const staffEmails = {
   pharmacist: "jean@ubuzima.rw",
   stockKeeper: "claudine@ubuzima.rw",
   cashier: "eric@ubuzima.rw",
+  dispenser: "dispense@ubuzima.rw",
 } as const;
 
 const staffPlan: Array<{ name: string; email: string; role: Role }> = [
@@ -135,6 +136,46 @@ export async function seedCatalog(query: QueryFn) {
       ],
     );
   }
+  const link = [
+    `insert into drug_batches (drug_id, lot_number, expiry_date, quantity)
+     select d.id, d.batch_number, d.expiry_date::date, d.quantity
+     from drugs d
+     where d.quantity > 0
+       and d.expiry_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
+       and not exists (select 1 from drug_batches b where b.drug_id = d.id)`,
+    `insert into categories (name)
+     select distinct btrim(category) from drugs
+     where btrim(category) <> ''
+       and not exists (select 1 from categories c where lower(c.name) = lower(btrim(drugs.category)))`,
+    `update drugs d set category_id = c.id
+     from categories c
+     where d.category_id is null and lower(c.name) = lower(btrim(d.category))`,
+    `insert into generics (name)
+     select distinct btrim(generic_name) from drugs
+     where btrim(generic_name) <> ''
+       and not exists (select 1 from generics g where lower(g.name) = lower(btrim(drugs.generic_name)))`,
+    `insert into variants (generic_id, strength, form)
+     select distinct g.id, d.strength, d.form
+     from drugs d
+     join generics g on lower(g.name) = lower(btrim(d.generic_name))
+     where not exists (
+       select 1 from variants v
+       where v.generic_id = g.id and v.strength = d.strength and v.form = d.form
+     )`,
+    `update drugs d set
+       generic_id = g.id,
+       variant_id = v.id,
+       brand_name = case when d.brand_name = '' then d.name else d.brand_name end,
+       manufacturer = case when d.manufacturer = '' then d.supplier else d.manufacturer end
+     from generics g
+     join variants v on v.generic_id = g.id
+     where lower(g.name) = lower(btrim(d.generic_name))
+       and v.strength = d.strength
+       and v.form = d.form
+       and d.variant_id is null`,
+    `update drugs set rx_only = true where category = 'Antibiotic' and rx_only = false`,
+  ];
+  for (const statement of link) await query(statement);
 }
 
 export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {

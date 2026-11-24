@@ -23,7 +23,7 @@ export async function PATCH(request: Request, context: Context) {
     assertAccess(user.role, "patients");
     const { id } = await context.params;
     const body = parseBody(patientNotesSchema, await readJson(request));
-    await updatePatientNotes(user, takeId(id), body.notes);
+    await updatePatientNotes(user, takeId(id), body);
     return json(await patientHistory(takeId(id)));
   } catch (error) {
     return fail(error);

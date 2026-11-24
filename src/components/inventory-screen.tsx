@@ -11,6 +11,7 @@ import { formatDay, formatRwf, formatWhen } from "@/lib/format";
 import { describeStock } from "@/lib/units";
 import type { Drug, Movement } from "@/lib/types";
 import { useStaff } from "./session";
+import { StockTools } from "./stock-tools";
 import { mergeSupplierNames, SupplierField } from "./supplier-field";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -24,6 +25,11 @@ type DrugDraft = {
   name: string;
   genericName: string;
   category: string;
+  manufacturer: string;
+  barcode: string;
+  rxOnly: boolean;
+  stripPrice: string;
+  packPrice: string;
   form: string;
   strength: string;
   sku: string;
@@ -52,6 +58,11 @@ function emptyDrug(reorderLevel = "10"): DrugDraft {
     name: "",
     genericName: "",
     category: "",
+    manufacturer: "",
+    barcode: "",
+    rxOnly: false,
+    stripPrice: "",
+    packPrice: "",
     form: "tablet",
     strength: "",
     sku: "",
@@ -74,6 +85,11 @@ function draftFromDrug(drug: Drug): DrugDraft {
     name: drug.name,
     genericName: drug.genericName,
     category: drug.category,
+    manufacturer: drug.manufacturer,
+    barcode: drug.barcode,
+    rxOnly: drug.rxOnly,
+    stripPrice: drug.stripPrice ? String(drug.stripPrice) : "",
+    packPrice: drug.packPrice ? String(drug.packPrice) : "",
     form: drug.form,
     strength: drug.strength,
     sku: drug.sku,
@@ -209,6 +225,10 @@ export function InventoryScreen() {
         }}
       />
 
+      <div className="mt-4">
+        <StockTools drugs={drugs} />
+      </div>
+
       <DrugDialog
         key={editing === undefined ? "closed" : editing ? String(editing.id) : "new"}
         open={editing !== undefined}
@@ -241,6 +261,12 @@ export function InventoryScreen() {
             name: draft.name,
             genericName: draft.genericName,
             category: draft.category,
+            brandName: draft.name,
+            manufacturer: draft.manufacturer,
+            barcode: draft.barcode,
+            rxOnly: draft.rxOnly,
+            stripPrice: wholeNumber(draft.stripPrice) ?? 0,
+            packPrice: wholeNumber(draft.packPrice) ?? 0,
             form: draft.form,
             strength: draft.strength,
             sku: draft.sku,
@@ -524,7 +550,19 @@ function DrugDialog({
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Generic</span>
-            <Input value={draft.genericName} onChange={(event) => set("genericName", event.target.value)} />
+            <Input value={draft.genericName} onChange={(event) => set("genericName", event.target.value)} placeholder="Links strengths and brands" />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Manufacturer</span>
+            <Input value={draft.manufacturer} onChange={(event) => set("manufacturer", event.target.value)} />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Barcode</span>
+            <Input value={draft.barcode} onChange={(event) => set("barcode", event.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" checked={draft.rxOnly} onChange={(event) => set("rxOnly", event.target.checked)} />
+            Prescription only. The counter cannot sell it without a filed script.
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Category</span>
@@ -569,6 +607,14 @@ function DrugDialog({
               value={draft.unitPrice}
               onChange={(event) => set("unitPrice", event.target.value)}
             />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Strip price (RWF)</span>
+            <Input inputMode="numeric" value={draft.stripPrice} onChange={(event) => set("stripPrice", event.target.value)} placeholder="Optional" />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Box price (RWF)</span>
+            <Input inputMode="numeric" value={draft.packPrice} onChange={(event) => set("packPrice", event.target.value)} placeholder="Optional" />
           </label>
           {drug ? (
             <div className="space-y-1.5">

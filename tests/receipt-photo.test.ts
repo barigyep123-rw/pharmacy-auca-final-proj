@@ -8,6 +8,7 @@ import {
   createPrescription,
   dispensePrescription,
   getDrugPhoto,
+  getPrescriptionPhoto,
   listDrugs,
   recordSale,
   staffByEmail,
@@ -83,7 +84,10 @@ test("a new drug can keep a photo, and a sale returns an 80mm receipt", async ()
     patientName: "Diane Ingabire",
     patientPhone: "",
     doctorName: "Dr. Mukamana",
+    facility: "CHUK",
+    prescriptionNumber: "RX-2291",
     notes: "",
+    photo: jpeg,
     items: [
       { drugId: para.id, quantity: 1, dosage: "One tablet" },
       { drugId: created.id, quantity: 1, dosage: "Rinse" },
@@ -92,6 +96,13 @@ test("a new drug can keep a photo, and a sale returns an 80mm receipt", async ()
   const receipt = await dispensePrescription(jean, script.id, cash.id);
   assert.equal(receipt.lines.length, 2);
   assert.equal(receipt.customerName, "Diane Ingabire");
+  assert.equal(script.facility, "CHUK");
+  assert.equal(script.prescriptionNumber, "RX-2291");
+  assert.equal(script.doctorName, "Dr. Mukamana");
+  assert.equal(script.hasPhoto, true);
+  const attached = await getPrescriptionPhoto(script.id);
+  assert.ok(attached);
+  assert.equal(attached.type, "image/jpeg");
   assert.equal(receipt.numbers.length, 2);
   assert.notEqual(receipt.numbers[0], receipt.numbers[1]);
 });

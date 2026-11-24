@@ -21,6 +21,8 @@ type Profile = {
   defaultDiscountBps: number;
   allowLineDiscount: boolean;
   defaultReorderLevel: number;
+  tin: string;
+  ebmSerial: string;
 };
 
 function percent(bps: number) {
@@ -76,6 +78,8 @@ export function BusinessSettings() {
           phone: String(data.get("phone") ?? ""),
           email: String(data.get("email") ?? ""),
           address: String(data.get("address") ?? ""),
+          tin: String(data.get("tin") ?? ""),
+          ebmSerial: String(data.get("ebmSerial") ?? ""),
           receiptPrefix: prefix,
           receiptPadding: Math.min(8, Math.max(1, padding || 1)),
           taxRateBps: toBps(String(data.get("tax") ?? "0")),
@@ -124,6 +128,14 @@ export function BusinessSettings() {
           <label className="space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Address on the receipt</span>
             <Input name="address" defaultValue={profile.address} />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">TIN</span>
+            <Input name="tin" defaultValue={profile.tin} />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">EBM device serial</span>
+            <Input name="ebmSerial" defaultValue={profile.ebmSerial} placeholder="Leave blank until a certified device is connected" />
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Receipt prefix</span>

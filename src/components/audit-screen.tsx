@@ -86,6 +86,7 @@ export function AuditScreen() {
                       <td className="px-4 py-3">
                         <p>{entry.summary}</p>
                         <p className="text-xs text-muted">{entry.action} · {entry.entity}</p>
+                        {entry.detail ? <p className="text-xs text-muted">{entry.detail}</p> : null}
                       </td>
                     </tr>
                   ))}

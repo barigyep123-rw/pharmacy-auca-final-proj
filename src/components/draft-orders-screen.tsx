@@ -187,6 +187,7 @@ export function DraftOrdersScreen() {
                   <li key={line.drugId} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span>
                       {line.drugName} <span className="text-muted">{line.strength}</span>
+                      {line.category ? <span className="mt-0.5 block text-xs text-muted">{line.category}</span> : null}
                       <span className="mt-0.5 block text-xs text-muted">
                         On hand {describeStock(line.onHand, line.unitsPerPack, line.baseUnit, line.packUnit)} · reorder {line.reorderLevel} {line.baseUnit}s
                       </span>

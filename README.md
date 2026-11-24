@@ -13,9 +13,12 @@ Counter ledger for a neighborhood pharmacy in Kimironko, Kigali. It keeps the dr
 Settings is under the counter menu and is only for an admin. Roles:
 
 - Admin: the whole counter, including staff.
-- Pharmacist: drugs, sales, prescriptions, and the dashboard.
+- Pharmacist: drugs, sales, prescriptions, patients, and the dashboard.
 - Stock keeper: inventory, expiry, and supplier orders. No sales or prescriptions.
-- Cashier: sales and prescriptions only.
+- Cashier: sales, prescriptions, patients, and finance.
+- Dispenser: the counter, bills, and patients. The counter shows sellable stock only.
+
+The header uses the pharmacy name saved in Settings. Counter sells a tablet, a strip, or a box, and can record dose, frequency, and duration on the receipt. Bills reprints that receipt. Inventory tracks lots and sells the earliest expiry first, and can record a customer return or a damaged or expired write-off. Categories live under Settings. Claims, the till count, and a physical stocktake sit with Finance and Inventory. A receipt carries a local fiscal mark. It is not an RRA-signed EBM receipt, and a saved “medicine is ready” note is not an SMS or WhatsApp send.
 
 The first admin chooses their own password. Example accounts for the other three roles are created at that moment, and their passwords are shown once. They are not written into the source.
 

@@ -8,6 +8,7 @@ import { formatRwf, formatWhen } from "@/lib/format";
 import { baseCount, describeStock, unitLabel } from "@/lib/units";
 import type { Drug, PaymentReceipt, Sale } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
+import { useStaff } from "./session";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -30,8 +31,13 @@ function slipFromSale(sale: Sale): PaymentReceipt {
         quantity: sale.quantity,
         unitPrice: sale.unitPrice,
         total: sale.total,
+        directions: sale.directions,
+        lotLabel: sale.lotLabel,
       },
     ],
+    fiscalNote: sale.fiscalCode
+      ? `Local fiscal mark ${sale.fiscalCode}. Not an RRA-signed EBM receipt.`
+      : undefined,
   };
 }
 
@@ -41,19 +47,41 @@ function party(sale: Sale) {
 }
 
 export function SalesScreen({ today }: { today: string }) {
+  const staff = useStaff();
+  const dispenser = staff?.role === "dispenser";
   const [drugs, setDrugs] = useState<Drug[] | null>(null);
   const [sales, setSales] = useState<Sale[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All");
+  const [dose, setDose] = useState("");
+  const [frequency, setFrequency] = useState("");
+  const [duration, setDuration] = useState("");
+  const [brands, setBrands] = useState<Array<{ id: number; name: string; manufacturer: string; quantity: number }>>([]);
   const [drugId, setDrugId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState("1");
-  const [soldAs, setSoldAs] = useState<"base" | "pack">("base");
+  const [soldAs, setSoldAs] = useState<"base" | "strip" | "pack">("base");
   const [customerName, setCustomerName] = useState("");
   const [methods, setMethods] = useState<Tender[]>([]);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
+
+  useEffect(() => {
+    if (!drugId) return;
+    let cancel = false;
+    api<{ brands: Array<{ id: number; name: string; manufacturer: string; quantity: number }> }>(`/api/drugs/${drugId}/brands`)
+      .then((result) => {
+        if (!cancel) setBrands(result.brands);
+      })
+      .catch(() => {
+        if (!cancel) setBrands([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [drugId]);
 
   async function load() {
     const [drugResult, saleResult, methodResult] = await Promise.all([
@@ -89,17 +117,29 @@ export function SalesScreen({ today }: { today: string }) {
     };
   }, []);
 
+  const categories = useMemo(
+    () => ["All", ...Array.from(new Set((drugs ?? []).map((drug) => drug.category).filter(Boolean))).sort()],
+    [drugs],
+  );
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (drugs ?? []).filter((drug) => {
+      if (dispenser && (drug.quantity < 1 || drug.expired)) return false;
+      if (category !== "All" && drug.category !== category) return false;
       if (!needle) return true;
-      return `${drug.name} ${drug.genericName} ${drug.sku}`.toLowerCase().includes(needle);
-    }).slice(0, 8);
-  }, [drugs, query]);
+      return `${drug.name} ${drug.genericName} ${drug.sku} ${drug.barcode} ${drug.brandName}`.toLowerCase().includes(needle);
+    });
+  }, [drugs, query, category, dispenser]);
   const selected = drugs?.find((drug) => drug.id === drugId) ?? null;
   const qty = wholeNumber(quantity);
-  const baseQty = selected && qty ? baseCount(qty, soldAs, selected.unitsPerPack) : 0;
-  const lineTotal = selected && qty ? selected.unitPrice * baseQty : 0;
+  const baseQty = selected && qty ? baseCount(qty, soldAs, selected.unitsPerPack, selected.stripSize) : 0;
+  const lineTotal = selected && qty
+    ? soldAs === "pack" && selected.packPrice
+      ? selected.packPrice * qty
+      : soldAs === "strip" && selected.stripPrice
+        ? selected.stripPrice * qty
+        : selected.unitPrice * baseQty
+    : 0;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -120,7 +160,17 @@ export function SalesScreen({ today }: { today: string }) {
     try {
       const result = await api<{ sale: { receipt: PaymentReceipt } }>("/api/sales", {
         method: "POST",
-        body: JSON.stringify({ drugId: selected.id, quantity: qty, soldAs, customerName, paymentMethodId }),
+        body: JSON.stringify({
+          drugId: selected.id,
+          quantity: qty,
+          soldAs,
+          customerName,
+          paymentMethodId,
+          dose,
+          frequency,
+          duration,
+          directions: [dose, frequency, duration].filter(Boolean).join(" · "),
+        }),
       });
       setReceipt(result.sale.receipt);
       toast.success(`${baseQty} ${selected.baseUnit}s of ${selected.name} recorded. Stock updated.`);
@@ -157,8 +207,20 @@ export function SalesScreen({ today }: { today: string }) {
                 placeholder="Name or SKU"
               />
             </label>
-            <ul className="max-h-52 space-y-1 overflow-y-auto">
-              {matches.length === 0 ? <li className="text-sm text-muted">Nothing matches that search.</li> : null}
+            <div className="flex flex-wrap gap-1">
+              {categories.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-xs ${category === item ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                  onClick={() => setCategory(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+            <ul className="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto">
+              {matches.length === 0 ? <li className="col-span-2 text-sm text-muted">Nothing matches that search.</li> : null}
               {matches.map((drug) => {
                 const blocked = drug.expired || drug.quantity === 0;
                 return (
@@ -167,8 +229,8 @@ export function SalesScreen({ today }: { today: string }) {
                       type="button"
                       disabled={blocked}
                       onClick={() => setDrugId(drug.id)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm disabled:opacity-50 ${
-                        drug.id === drugId ? "bg-pine-soft" : "hover:bg-paper"
+                      className={`flex min-h-20 w-full flex-col justify-between rounded-xl px-2 py-2 text-left text-sm disabled:opacity-50 ${
+                        drug.id === drugId ? "bg-pine-soft" : "bg-paper hover:bg-card"
                       }`}
                     >
                       <span>
@@ -182,6 +244,20 @@ export function SalesScreen({ today }: { today: string }) {
                 );
               })}
             </ul>
+            {(drugId ? brands : []).length > 1 ? (
+              <div className="flex flex-wrap gap-1">
+                {brands.map((brand) => (
+                  <button
+                    key={brand.id}
+                    type="button"
+                    className={`rounded-full px-2 py-1 text-xs ${brand.id === drugId ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                    onClick={() => setDrugId(brand.id)}
+                  >
+                    {brand.name}{brand.manufacturer ? ` · ${brand.manufacturer}` : ""} ({brand.quantity})
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {selected ? (
               <p className="text-sm text-muted">
                 {selected.name}: {describeStock(selected.quantity, selected.unitsPerPack, selected.baseUnit, selected.packUnit)} on hand, expires {selected.expiryDate}
@@ -202,8 +278,22 @@ export function SalesScreen({ today }: { today: string }) {
                 onClick={() => setSoldAs("pack")}
               >
                 {selected?.packUnit ?? "Pack"}
+                {selected?.packPrice ? ` · ${formatRwf(selected.packPrice)}` : ""}
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-sm ${soldAs === "strip" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                onClick={() => setSoldAs("strip")}
+              >
+                Strip{selected?.stripPrice ? ` · ${formatRwf(selected.stripPrice)}` : ""}
               </button>
             </div>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Directions</span>
+              <Input value={dose} onChange={(event) => setDose(event.target.value)} placeholder="Dose, optional" />
+              <Input value={frequency} onChange={(event) => setFrequency(event.target.value)} placeholder="How often" />
+              <Input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="For how long" />
+            </label>
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Quantity</span>
               <Input
@@ -249,7 +339,13 @@ export function SalesScreen({ today }: { today: string }) {
           </form>
         </Card>
 
-        <Card className="min-w-0 p-4">
+        {dispenser ? (
+          <Card className="min-w-0 p-4">
+            <h2 className="font-serif text-xl">Sellable stock</h2>
+            <p className="mt-2 text-sm text-muted">Expired and empty lines stay off this counter. Reprint a receipt from Bills.</p>
+          </Card>
+        ) : null}
+        {dispenser ? null : <Card className="min-w-0 p-4">
           <h2 className="mb-3 font-serif text-xl">History</h2>
           {sales.length === 0 ? (
             <p className="text-sm text-muted">No sales yet. The first one will land here and reduce stock.</p>
@@ -293,7 +389,7 @@ export function SalesScreen({ today }: { today: string }) {
               </table>
             </div>
           )}
-        </Card>
+        </Card>}
       </div>
       <ReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
     </div>

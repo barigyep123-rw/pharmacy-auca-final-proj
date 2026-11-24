@@ -6,12 +6,12 @@ import type { Staff } from "./types";
 export async function writeAudit(
   query: QueryFn,
   actor: { id: number; name: string },
-  entry: { action: string; entity: string; entityId?: number | null; summary: string },
+  entry: { action: string; entity: string; entityId?: number | null; summary: string; detail?: string },
 ) {
   await query(
-    `insert into audit_log (actor_id, actor_name, action, entity, entity_id, summary)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [actor.id, actor.name, entry.action, entry.entity, entry.entityId ?? null, entry.summary],
+    `insert into audit_log (actor_id, actor_name, action, entity, entity_id, summary, detail)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [actor.id, actor.name, entry.action, entry.entity, entry.entityId ?? null, entry.summary, entry.detail ?? ""],
   );
 }
 
@@ -22,6 +22,7 @@ export type AuditEntry = {
   entity: string;
   entityId: number | null;
   summary: string;
+  detail: string;
   createdAt: string;
 };
 
@@ -39,7 +40,7 @@ function text(value: unknown) {
 export async function listAudit(actor: Staff, entity = ""): Promise<AuditEntry[]> {
   assertAccess(actor.role, "audit");
   const rows = await sql(
-    `select id, actor_name, action, entity, entity_id, summary, created_at
+    `select id, actor_name, action, entity, entity_id, summary, detail, created_at
      from audit_log
      where ($1 = '' or entity = $1)
      order by created_at desc, id desc
@@ -53,6 +54,7 @@ export async function listAudit(actor: Staff, entity = ""): Promise<AuditEntry[]
     entity: text(row.entity),
     entityId: row.entity_id == null ? null : num(row.entity_id),
     summary: text(row.summary),
+    detail: text(row.detail),
     createdAt: text(row.created_at),
   }));
 }

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
+import { compressPhoto } from "@/lib/compress-photo";
 import { formatRwf, formatWhen } from "@/lib/format";
 import type { Drug, PaymentReceipt, Prescription } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
@@ -49,8 +50,13 @@ export function PrescriptionsScreen({ today }: { today: string }) {
   const [patientName, setPatientName] = useState("");
   const [patientPhone, setPatientPhone] = useState("");
   const [doctorName, setDoctorName] = useState("");
+  const [facility, setFacility] = useState("");
+  const [prescriptionNumber, setPrescriptionNumber] = useState("");
+  const [photoData, setPhotoData] = useState("");
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [refillsAllowed, setRefillsAllowed] = useState("0");
+  const [daysSupply, setDaysSupply] = useState("0");
   const [lines, setLines] = useState<Line[]>([{ key: "line-1", drugId: "", quantity: "1", dosage: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -101,8 +107,13 @@ export function PrescriptionsScreen({ today }: { today: string }) {
     setPatientName("");
     setPatientPhone("");
     setDoctorName("");
+    setFacility("");
+    setPrescriptionNumber("");
+    setPhotoData("");
+    setPhotoError(null);
     setNotes("");
     setRefillsAllowed("0");
+    setDaysSupply("0");
     setLines([{ key: "line-1", drugId: "", quantity: "1", dosage: "" }]);
     setFormError(null);
   }
@@ -132,8 +143,12 @@ export function PrescriptionsScreen({ today }: { today: string }) {
           patientName,
           patientPhone,
           doctorName,
+          facility,
+          prescriptionNumber,
           notes,
+          ...(photoData ? { photo: photoData } : {}),
           refillsAllowed: wholeNumber(refillsAllowed) ?? 0,
+          daysSupply: wholeNumber(daysSupply) ?? 0,
           items,
         }),
       });
@@ -245,6 +260,7 @@ export function PrescriptionsScreen({ today }: { today: string }) {
               <thead className="text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">Patient</th>
+                  <th className="px-4 py-3 font-medium">Script</th>
                   <th className="px-4 py-3 font-medium">Prescriber</th>
                   <th className="px-4 py-3 font-medium">Filed</th>
                   <th className="px-4 py-3 font-medium">Status</th>
@@ -261,7 +277,14 @@ export function PrescriptionsScreen({ today }: { today: string }) {
                         {row.refillsAllowed > 0 ? ` · ${row.refillsRemaining} refill${row.refillsRemaining === 1 ? "" : "s"} left` : ""}
                       </p>
                     </td>
-                    <td className="px-4 py-3">{row.doctorName || "—"}</td>
+                    <td className="px-4 py-3">
+                      <p>{row.prescriptionNumber || "—"}</p>
+                      {row.hasPhoto ? <p className="text-xs text-muted">Photo attached</p> : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p>{row.doctorName || "—"}</p>
+                      <p className="text-xs text-muted">{row.facility || "No facility"}</p>
+                    </td>
                     <td className="px-4 py-3 text-muted">{formatWhen(row.createdAt)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={row.status === "dispensed" ? "pine" : row.status === "cancelled" ? "neutral" : "amber"}>
@@ -298,11 +321,54 @@ export function PrescriptionsScreen({ today }: { today: string }) {
                 <span className="text-sm font-medium">Phone</span>
                 <Input value={patientPhone} onChange={(event) => setPatientPhone(event.target.value)} />
               </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Prescription number</span>
+                <Input value={prescriptionNumber} onChange={(event) => setPrescriptionNumber(event.target.value)} placeholder="RX-2291" />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Hospital or facility</span>
+                <Input value={facility} onChange={(event) => setFacility(event.target.value)} placeholder="CHUK" />
+              </label>
               <label className="space-y-1.5 sm:col-span-2">
                 <span className="text-sm font-medium">Prescriber</span>
                 <Input value={doctorName} onChange={(event) => setDoctorName(event.target.value)} />
               </label>
             </div>
+            <div className="flex items-center gap-3">
+              {photoData ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoData} alt="Prescription" className="h-16 w-16 rounded-lg object-cover" />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-line text-xs text-muted">
+                  Photo
+                </div>
+              )}
+              <label className="inline-flex cursor-pointer items-center rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm">
+                {photoData ? "Change photo" : "Attach a photo"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    setPhotoError(null);
+                    void compressPhoto(file)
+                      .then(setPhotoData)
+                      .catch((caught: unknown) => {
+                        setPhotoError(caught instanceof Error ? caught.message : "Could not read that photo.");
+                      });
+                  }}
+                />
+              </label>
+              {photoData ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setPhotoData("")}>
+                  Remove photo
+                </Button>
+              ) : null}
+            </div>
+            {photoError ? <p className="text-sm text-clay">{photoError}</p> : null}
             <div className="space-y-3">
               {lines.map((line, index) => (
                 <div key={line.key} className="grid gap-2 rounded-xl border border-line p-3 sm:grid-cols-[1fr_6rem_1fr_auto]">
@@ -362,6 +428,11 @@ export function PrescriptionsScreen({ today }: { today: string }) {
               <span className="block text-xs text-muted">Extra fills after the first dispense. Zero means this script is used once.</span>
             </label>
             <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Days this fill should last</span>
+              <Input inputMode="numeric" value={daysSupply} onChange={(event) => setDaysSupply(event.target.value)} />
+              <span className="block text-xs text-muted">A refill before this many days is refused as too soon. Zero does not block an early refill.</span>
+            </label>
+            <label className="block space-y-1.5">
               <span className="text-sm font-medium">Notes</span>
               <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
             </label>
@@ -379,9 +450,25 @@ export function PrescriptionsScreen({ today }: { today: string }) {
               <DialogHeader>
                 <DialogTitle>{active.patientName}</DialogTitle>
                 <DialogDescription>
-                  {active.doctorName || "No prescriber listed"} · filed by {active.createdByName} · {formatWhen(active.createdAt)}
+                  {active.prescriptionNumber || "No script number"}
+                  {" · "}
+                  {active.facility || "No facility"}
+                  {" · "}
+                  {active.doctorName || "No prescriber listed"}
+                  {" · filed by "}
+                  {active.createdByName}
+                  {" · "}
+                  {formatWhen(active.createdAt)}
                 </DialogDescription>
               </DialogHeader>
+              {active.hasPhoto ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/prescriptions/${active.id}/photo`}
+                  alt={`Prescription ${active.prescriptionNumber || active.id}`}
+                  className="mb-3 max-h-64 w-full rounded-xl object-contain bg-paper"
+                />
+              ) : null}
               <div className="mb-3 flex items-center gap-2">
                 <Badge tone={active.status === "dispensed" ? "pine" : active.status === "cancelled" ? "neutral" : "amber"}>
                   {active.status}

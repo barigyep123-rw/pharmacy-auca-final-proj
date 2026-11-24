@@ -1,4 +1,4 @@
-export type Role = "admin" | "pharmacist" | "stock_keeper" | "cashier";
+export type Role = "admin" | "pharmacist" | "stock_keeper" | "cashier" | "dispenser";
 
 export type Staff = {
   id: number;
@@ -12,6 +12,18 @@ export type Drug = {
   name: string;
   genericName: string;
   category: string;
+  categoryId: number | null;
+  subcategoryId: number | null;
+  subcategory: string;
+  genericId: number | null;
+  variantId: number | null;
+  brandName: string;
+  manufacturer: string;
+  barcode: string;
+  rxOnly: boolean;
+  stripSize: number;
+  stripPrice: number;
+  packPrice: number;
   form: string;
   strength: string;
   sku: string;
@@ -54,6 +66,10 @@ export type Sale = {
   receiptNumber: string;
   paymentMethodName: string;
   settlesImmediately: boolean;
+  directions: string;
+  lotLabel: string;
+  basketId: number | null;
+  fiscalCode: string;
 };
 
 export type ReceiptLine = {
@@ -62,6 +78,8 @@ export type ReceiptLine = {
   quantity: number;
   unitPrice: number;
   total: number;
+  directions?: string;
+  lotLabel?: string;
 };
 
 export type PaymentReceipt = {
@@ -72,6 +90,7 @@ export type PaymentReceipt = {
   paymentMethodName: string;
   settlesImmediately: boolean;
   lines: ReceiptLine[];
+  fiscalNote?: string;
 };
 
 export type PrescriptionItem = {
@@ -99,6 +118,9 @@ export type Prescription = {
   patientName: string;
   patientPhone: string;
   doctorName: string;
+  facility: string;
+  prescriptionNumber: string;
+  hasPhoto: boolean;
   notes: string;
   status: "pending" | "dispensed" | "cancelled";
   refillsAllowed: number;

@@ -8,6 +8,7 @@ const links = [
   { href: "/finance/ledger", label: "Ledger" },
   { href: "/finance/invoices", label: "Invoices" },
   { href: "/finance/collections", label: "Collections" },
+  { href: "/finance/claims", label: "Claims" },
 ];
 
 export default async function FinanceLayout({ children }: { children: React.ReactNode }) {

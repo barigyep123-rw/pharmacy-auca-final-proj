@@ -96,6 +96,13 @@ export type PatientHistory = {
   name: string;
   phone: string;
   notes: string;
+  sex: string;
+  dateOfBirth: string;
+  insurerName: string;
+  memberNumber: string;
+  allergies: string;
+  brandPreference: string;
+  preferredBrand: string;
   prescriptions: Array<{
     id: number;
     doctorName: string;
@@ -109,8 +116,21 @@ export type PatientHistory = {
 };
 
 export async function patientHistory(id: number): Promise<PatientHistory> {
-  const [patient] = await sql<{ id: number; name: string; phone: string; notes: string }>(
-    `select id, name, phone, notes from patients where id = $1`,
+  const [patient] = await sql<{
+    id: number;
+    name: string;
+    phone: string;
+    notes: string;
+    sex: string;
+    date_of_birth: string;
+    insurer_name: string;
+    member_number: string;
+    allergies: string;
+    brand_preference: string;
+    preferred_brand: string;
+  }>(
+    `select id, name, phone, notes, sex, date_of_birth, insurer_name, member_number, allergies, brand_preference, preferred_brand
+     from patients where id = $1`,
     [id],
   );
   if (!patient) throw new ApiError(404, "That patient is not on the record.");
@@ -167,6 +187,13 @@ export async function patientHistory(id: number): Promise<PatientHistory> {
     name: text(patient.name),
     phone: text(patient.phone),
     notes: text(patient.notes),
+    sex: text(patient.sex),
+    dateOfBirth: text(patient.date_of_birth),
+    insurerName: text(patient.insurer_name),
+    memberNumber: text(patient.member_number),
+    allergies: text(patient.allergies),
+    brandPreference: text(patient.brand_preference),
+    preferredBrand: text(patient.preferred_brand),
     prescriptions: prescriptions.map((row) => ({
       id: num(row.id),
       doctorName: text(row.doctor_name),
@@ -180,11 +207,43 @@ export async function patientHistory(id: number): Promise<PatientHistory> {
   };
 }
 
-export async function updatePatientNotes(actor: Staff, id: number, notes: string) {
+export async function updatePatientNotes(
+  actor: Staff,
+  id: number,
+  input: {
+    notes: string;
+    sex?: string;
+    dateOfBirth?: string;
+    insurerName?: string;
+    memberNumber?: string;
+    allergies?: string;
+    brandPreference?: string;
+    preferredBrand?: string;
+  },
+) {
   assertAccess(actor.role, "patients");
   const [row] = await sql<{ id: number; name: string }>(
-    `update patients set notes = $1 where id = $2 returning id, name`,
-    [notes, id],
+    `update patients set
+       notes = $1,
+       sex = coalesce($2, sex),
+       date_of_birth = coalesce($3, date_of_birth),
+       insurer_name = coalesce($4, insurer_name),
+       member_number = coalesce($5, member_number),
+       allergies = coalesce($6, allergies),
+       brand_preference = coalesce($7, brand_preference),
+       preferred_brand = coalesce($8, preferred_brand)
+     where id = $9 returning id, name`,
+    [
+      input.notes,
+      input.sex ?? null,
+      input.dateOfBirth ?? null,
+      input.insurerName ?? null,
+      input.memberNumber ?? null,
+      input.allergies ?? null,
+      input.brandPreference ?? null,
+      input.preferredBrand ?? null,
+      id,
+    ],
   );
   if (!row) throw new ApiError(404, "That patient is not on the record.");
   await writeAudit(sql, actor, {

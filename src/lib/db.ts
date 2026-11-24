@@ -35,8 +35,8 @@ export async function sql<T = Record<string, unknown>>(
 ): Promise<T[]> {
   await initDb();
   if (databaseUrl() !== "") {
-    db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 });
-    const result = await db().pool.query(text, params);
+    const pool = (db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 }));
+    const result = await pool.query(text, params);
     return result.rows as T[];
   }
   const result = await db().local!.query<T>(text, params);
@@ -46,8 +46,8 @@ export async function sql<T = Record<string, unknown>>(
 export async function withTransaction<T>(fn: (query: QueryFn) => Promise<T>): Promise<T> {
   await initDb();
   if (databaseUrl() !== "") {
-    db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 });
-    const client = await db().pool.connect();
+    const pool = (db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 }));
+    const client = await pool.connect();
     const query: QueryFn = async (text, params = []) => {
       const result = await client.query(text, params);
       return result.rows as never;
@@ -93,8 +93,9 @@ async function start() {
 
   const dataDir = path.join(process.cwd(), "data", "pglite");
   if (!memoryMode()) await mkdir(path.dirname(dataDir), { recursive: true });
-  db().local = memoryMode() ? new PGlite() : new PGlite(dataDir);
-  await db().local.waitReady;
+  const local = memoryMode() ? new PGlite() : new PGlite(dataDir);
+  db().local = local;
+  await local.waitReady;
   await applyLocalMigrations();
   await seedIfEmpty(false);
 }
@@ -175,6 +176,7 @@ export async function resetAndSeed() {
     pharmacist: randomBytes(18).toString("base64url"),
     stock_keeper: randomBytes(18).toString("base64url"),
     cashier: randomBytes(18).toString("base64url"),
+    dispenser: randomBytes(18).toString("base64url"),
   };
   await withTransaction(async (query) => {
     await insertSeed(query, passwords);

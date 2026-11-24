@@ -7,6 +7,7 @@ const links = [
   { href: "/settings/staff", label: "Staff" },
   { href: "/settings/payments", label: "Payments" },
   { href: "/settings/business", label: "Business" },
+  { href: "/settings/categories", label: "Categories" },
 ];
 
 export function SettingsNav() {

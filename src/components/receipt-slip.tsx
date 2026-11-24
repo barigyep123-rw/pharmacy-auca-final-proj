@@ -75,6 +75,8 @@ export function ReceiptPaper({
             <span>{line.quantity} × {formatRwf(line.unitPrice)}</span>
             <span>{formatRwf(line.total)}</span>
           </p>
+          {line.directions ? <p style={{ margin: 0 }}>{line.directions}</p> : null}
+          {line.lotLabel ? <p style={{ margin: 0 }}>{line.lotLabel}</p> : null}
         </div>
       ))}
       <p style={{ margin: "8px 0", borderTop: "1px dashed #111" }} />
@@ -88,6 +90,7 @@ export function ReceiptPaper({
       </p>
       {adjusted ? <p style={{ margin: "4px 0 0" }}>Totals include the pharmacy discount and tax.</p> : null}
       {receipt.sellerName ? <p style={{ margin: "4px 0 0" }}>Served by {receipt.sellerName}</p> : null}
+      {receipt.fiscalNote ? <p style={{ margin: "6px 0 0", fontSize: "11px" }}>{receipt.fiscalNote}</p> : null}
       <p style={{ margin: "8px 0", borderTop: "1px dashed #111" }} />
       <p style={{ margin: 0, textAlign: "center" }}>Thank you</p>
     </article>

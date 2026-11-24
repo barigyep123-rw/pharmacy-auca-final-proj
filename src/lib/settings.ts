@@ -39,6 +39,8 @@ export type BusinessProfile = {
   defaultDiscountBps: number;
   allowLineDiscount: boolean;
   defaultReorderLevel: number;
+  tin: string;
+  ebmSerial: string;
 };
 
 function num(value: unknown) {
@@ -320,6 +322,8 @@ function profile(row: {
   default_discount_bps: number;
   allow_line_discount: boolean;
   default_reorder_level: number;
+  tin: string;
+  ebm_serial: string;
 }): BusinessProfile {
   return {
     name: row.name,
@@ -334,11 +338,14 @@ function profile(row: {
     defaultDiscountBps: num(row.default_discount_bps),
     allowLineDiscount: row.allow_line_discount,
     defaultReorderLevel: num(row.default_reorder_level),
+    tin: row.tin ?? "",
+    ebmSerial: row.ebm_serial ?? "",
   };
 }
 
 const profileSelect = `select name, phone, email, address, receipt_prefix, receipt_next, receipt_padding,
-  tax_rate_bps, prices_include_tax, default_discount_bps, allow_line_discount, default_reorder_level
+  tax_rate_bps, prices_include_tax, default_discount_bps, allow_line_discount, default_reorder_level,
+  tin, ebm_serial
   from business_profile where id = 1`;
 
 export async function getBusinessProfile(): Promise<BusinessProfile> {
@@ -355,10 +362,13 @@ export async function updateBusinessProfile(actor: Staff, input: BusinessProfile
        receipt_prefix = $5, receipt_padding = $6,
        tax_rate_bps = $7, prices_include_tax = $8,
        default_discount_bps = $9, allow_line_discount = $10,
-       default_reorder_level = $11
+       default_reorder_level = $11,
+       tin = $12,
+       ebm_serial = $13
      where id = 1
      returning name, phone, email, address, receipt_prefix, receipt_next, receipt_padding,
-       tax_rate_bps, prices_include_tax, default_discount_bps, allow_line_discount, default_reorder_level`,
+       tax_rate_bps, prices_include_tax, default_discount_bps, allow_line_discount, default_reorder_level,
+       tin, ebm_serial`,
     [
       input.name,
       input.phone,
@@ -371,6 +381,8 @@ export async function updateBusinessProfile(actor: Staff, input: BusinessProfile
       input.defaultDiscountBps,
       input.allowLineDiscount,
       input.defaultReorderLevel,
+      input.tin,
+      input.ebmSerial,
     ],
   );
   await writeAudit(sql, actor, {

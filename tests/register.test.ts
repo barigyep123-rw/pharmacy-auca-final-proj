@@ -23,10 +23,10 @@ test("a fresh install has the shelf, no staff, and accepts one admin", async () 
   });
   assert.equal(created.admin.role, "admin");
   assert.equal(created.admin.email, "aline@ubuzima.rw");
-  assert.equal(created.demoStaff.length, 3);
+  assert.equal(created.demoStaff.length, 4);
   assert.deepEqual(
     created.demoStaff.map((person) => person.role).sort(),
-    ["cashier", "pharmacist", "stock_keeper"],
+    ["cashier", "dispenser", "pharmacist", "stock_keeper"],
   );
   assert.equal(await hasAdmin(), true);
 

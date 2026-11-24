@@ -22,6 +22,15 @@ export const drugInputSchema = z.object({
   name: z.string().trim().min(2, "Enter the drug name.").max(80),
   genericName: optionalText(80),
   category: z.string().trim().min(2, "Enter a category.").max(40),
+  categoryId: z.number().int().positive().nullable().optional(),
+  subcategoryId: z.number().int().positive().nullable().optional(),
+  brandName: optionalText(80),
+  manufacturer: optionalText(80),
+  barcode: optionalText(40),
+  rxOnly: z.boolean().optional().default(false),
+  stripSize: z.number().int().min(1).max(10_000).optional().default(10),
+  stripPrice: z.number().int().min(0).max(5_000_000).optional().default(0),
+  packPrice: z.number().int().min(0).max(5_000_000).optional().default(0),
   form: z.string().trim().min(2, "Choose a form.").max(24),
   strength: optionalText(40),
   sku,
@@ -44,9 +53,25 @@ export const drugUpdateSchema = drugInputSchema.omit({ openingQuantity: true, ph
 export const saleSchema = z.object({
   drugId: z.number().int().positive(),
   quantity: z.number().int().min(1, "Quantity must be at least 1.").max(5_000),
-  soldAs: z.enum(["base", "pack"]).optional().default("base"),
+  soldAs: z.enum(["base", "strip", "pack"]).optional().default("base"),
   customerName: optionalText(80),
   paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
+  patientId: z.number().int().positive().nullable().optional(),
+  directions: optionalText(160),
+  dose: optionalText(40),
+  route: optionalText(40),
+  frequency: optionalText(40),
+  duration: optionalText(40),
+  acknowledgeRisks: z.boolean().optional().default(false),
+  prescriptionId: z.number().int().positive().nullable().optional(),
+});
+
+export const basketSchema = z.object({
+  customerName: optionalText(80),
+  paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
+  patientId: z.number().int().positive().nullable().optional(),
+  acknowledgeRisks: z.boolean().optional().default(false),
+  lines: z.array(saleSchema.omit({ customerName: true, paymentMethodId: true, patientId: true, acknowledgeRisks: true })).min(1).max(20),
 });
 
 export const dispenseSchema = z.object({
@@ -79,8 +104,12 @@ export const prescriptionSchema = z.object({
   patientName: z.string().trim().min(2, "Enter the patient name.").max(80),
   patientPhone: optionalText(24),
   doctorName: optionalText(80),
+  facility: optionalText(120),
+  prescriptionNumber: optionalText(40),
   notes: optionalText(500),
   refillsAllowed: z.number().int().min(0, "Refills cannot be negative.").max(12, "Twelve refills is the limit.").optional().default(0),
+  daysSupply: z.number().int().min(0).max(365).optional().default(0),
+  photo: z.string().trim().max(900_000, "That photo is too large.").optional(),
   items: z.array(prescriptionLine).min(1, "Add at least one drug.").max(12),
 });
 
@@ -184,6 +213,8 @@ export const businessSchema = z.object({
   defaultDiscountBps: z.number().int().min(0).max(10_000),
   allowLineDiscount: z.boolean(),
   defaultReorderLevel: z.number().int().min(0).max(100_000),
+  tin: optionalText(40),
+  ebmSerial: optionalText(40),
 });
 
 const supplierName = z
@@ -211,6 +242,13 @@ export const supplierProfileSchema = z.object({
 
 export const patientNotesSchema = z.object({
   notes: optionalText(500),
+  sex: z.enum(["", "female", "male"]).optional(),
+  dateOfBirth: z.string().trim().max(10).optional(),
+  insurerName: z.string().trim().max(80).optional(),
+  memberNumber: z.string().trim().max(40).optional(),
+  allergies: z.string().trim().max(200).optional(),
+  brandPreference: z.enum(["", "any", "generic_only", "brand"]).optional(),
+  preferredBrand: z.string().trim().max(80).optional(),
 });
 
 const email = z
@@ -232,7 +270,7 @@ export const staffSchema = z.object({
   name: z.string().trim().min(2, "Enter a name.").max(80),
   email,
   password: z.string().min(8, "Use at least 8 characters.").max(80),
-  role: z.enum(["admin", "pharmacist", "stock_keeper", "cashier"]),
+  role: z.enum(["admin", "pharmacist", "stock_keeper", "cashier", "dispenser"]),
 });
 
 export const registerSchema = z.object({
@@ -250,8 +288,8 @@ export function parseBody<T>(schema: z.ZodType<T>, data: unknown): T {
   return result.data;
 }
 
-export type DrugInput = z.infer<typeof drugInputSchema>;
-export type DrugUpdateInput = z.infer<typeof drugUpdateSchema>;
-export type SaleInput = z.infer<typeof saleSchema>;
-export type PrescriptionInput = z.infer<typeof prescriptionSchema>;
-export type PurchaseOrderInput = z.infer<typeof purchaseOrderSchema>;
+export type DrugInput = z.input<typeof drugInputSchema>;
+export type DrugUpdateInput = z.input<typeof drugUpdateSchema>;
+export type SaleInput = Omit<z.input<typeof saleSchema>, "paymentMethodId"> & { paymentMethodId?: number };
+export type PrescriptionInput = z.input<typeof prescriptionSchema>;
+export type PurchaseOrderInput = z.input<typeof purchaseOrderSchema>;

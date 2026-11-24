@@ -9,9 +9,15 @@ export function packForForm(form: string): PackRule {
   return { baseUnit: "tablet", packUnit: "box", unitsPerPack: 10 };
 }
 
-export function baseCount(count: number, soldAs: "base" | "pack", unitsPerPack: number) {
-  const per = unitsPerPack >= 1 ? unitsPerPack : 1;
-  return soldAs === "pack" ? count * per : count;
+export function baseCount(
+  count: number,
+  soldAs: "base" | "pack" | "strip",
+  unitsPerPack: number,
+  stripSize = 10,
+) {
+  if (soldAs === "pack") return count * (unitsPerPack >= 1 ? unitsPerPack : 1);
+  if (soldAs === "strip") return count * (stripSize >= 1 ? stripSize : 1);
+  return count;
 }
 
 export function packsForShortfall(onHand: number, reorderLevel: number, unitsPerPack: number) {
