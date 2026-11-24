@@ -7,6 +7,7 @@ import { formatRwf, formatWhen } from "@/lib/format";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
+import { SearchableSelect } from "./searchable-select";
 import { DocumentDialog } from "./print-document";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
@@ -98,15 +99,11 @@ export function ClaimsScreen() {
         <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => void submit(event)}>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Insurer</span>
-            <select
-              className="h-10 rounded-lg border border-line bg-paper-2 px-2 text-sm"
-              value={insurerId ?? ""}
-              onChange={(event) => setInsurerId(Number(event.target.value))}
-            >
-              {insurers.map((insurer) => (
-                <option key={insurer.id} value={insurer.id}>{insurer.name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={insurerId == null ? "" : String(insurerId)}
+              options={insurers.map((insurer) => ({ value: String(insurer.id), label: insurer.name }))}
+              onChange={(value) => setInsurerId(Number(value))}
+            />
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Member number</span>

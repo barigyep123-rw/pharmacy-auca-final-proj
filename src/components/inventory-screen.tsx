@@ -5,46 +5,22 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { can } from "@/lib/access";
 import { api } from "@/lib/api";
-import { compressPhoto } from "@/lib/compress-photo";
-import { categorySuggestions, drugForms, wholeNumber } from "@/lib/catalog";
-import { formatDay, formatRwf, formatWhen } from "@/lib/format";
+import { wholeNumber } from "@/lib/catalog";
+import { formatDay, formatRwf } from "@/lib/format";
+import { unitsFromOpeningPacks } from "@/lib/strength";
 import { describeStock } from "@/lib/units";
-import type { Drug, Movement } from "@/lib/types";
+import type { Drug } from "@/lib/types";
+import { DrugDialog } from "./drug-dialog";
 import { useStaff } from "./session";
-import { BrandPhotos } from "./brand-photos";
 import { StockTools } from "./stock-tools";
-import { mergeSupplierNames, SupplierField } from "./supplier-field";
+import { mergeSupplierNames } from "./supplier-field";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
 type ShelfFilter = "all" | "low" | "expiring" | "expired";
-type DrugDraft = {
-  name: string;
-  genericName: string;
-  category: string;
-  manufacturer: string;
-  barcode: string;
-  rxOnly: boolean;
-  stripPrice: string;
-  packPrice: string;
-  form: string;
-  strength: string;
-  sku: string;
-  unitPrice: string;
-  openingQuantity: string;
-  reorderLevel: string;
-  baseUnit: string;
-  packUnit: string;
-  unitsPerPack: string;
-  expiryDate: string;
-  batchNumber: string;
-  supplier: string;
-  photos: string[];
-};
 
 const shelfFilters: Array<{ id: ShelfFilter; label: string }> = [
   { id: "all", label: "All" },
@@ -52,62 +28,6 @@ const shelfFilters: Array<{ id: ShelfFilter; label: string }> = [
   { id: "expiring", label: "Expiring" },
   { id: "expired", label: "Expired" },
 ];
-
-function emptyDrug(reorderLevel = "10"): DrugDraft {
-  return {
-    name: "",
-    genericName: "",
-    category: "",
-    manufacturer: "",
-    barcode: "",
-    rxOnly: false,
-    stripPrice: "",
-    packPrice: "",
-    form: "tablet",
-    strength: "",
-    sku: "",
-    unitPrice: "",
-    openingQuantity: "0",
-    reorderLevel,
-    baseUnit: "tablet",
-    packUnit: "box",
-    unitsPerPack: "10",
-    expiryDate: "",
-    batchNumber: "",
-    supplier: "",
-    photos: [],
-  };
-}
-
-function draftFromDrug(drug: Drug): DrugDraft {
-  return {
-    name: drug.name,
-    genericName: drug.genericName,
-    category: drug.category,
-    manufacturer: drug.manufacturer,
-    barcode: drug.barcode,
-    rxOnly: drug.rxOnly,
-    stripPrice: drug.stripPrice ? String(drug.stripPrice) : "",
-    packPrice: drug.packPrice ? String(drug.packPrice) : "",
-    form: drug.form,
-    strength: drug.strength,
-    sku: drug.sku,
-    unitPrice: String(drug.unitPrice),
-    openingQuantity: String(drug.quantity),
-    reorderLevel: String(drug.reorderLevel),
-    baseUnit: drug.baseUnit,
-    packUnit: drug.packUnit,
-    unitsPerPack: String(drug.unitsPerPack),
-    expiryDate: drug.expiryDate,
-    batchNumber: drug.batchNumber,
-    supplier: drug.supplier,
-    photos: [],
-  };
-}
-
-function selectClass() {
-  return "h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm";
-}
 
 async function readInventory() {
   const [catalog, saved, savedProfile] = await Promise.all([
@@ -232,6 +152,7 @@ export function InventoryScreen() {
         open={editing !== undefined}
         drug={editing === undefined ? null : editing}
         suppliers={suppliers}
+        catalog={drugs}
         canCreateSupplier={manageOrders}
         defaultReorder={defaultReorder}
         error={formError}
@@ -254,12 +175,26 @@ export function InventoryScreen() {
             setPending(false);
             return;
           }
-          const unitsPerPack = wholeNumber(draft.unitsPerPack);
+          let unitsPerPack = wholeNumber(draft.unitsPerPack);
+          if (!editing && openingQuantity && openingQuantity > 0) {
+            const packs = wholeNumber(draft.openingPacks);
+            const perPack = packs ? unitsFromOpeningPacks(openingQuantity, packs) : null;
+            if (!perPack) {
+              setFormError("Say how many packs that opening stock is. 20 tablets might be one blister or two, and the count has to divide evenly.");
+              setPending(false);
+              return;
+            }
+            unitsPerPack = perPack;
+          }
           if (!unitsPerPack || unitsPerPack < 1) {
             setFormError("Pack size has to be a whole number of base units.");
             setPending(false);
             return;
           }
+          const cover = (value: string) => {
+            if (!draft.trackInsurance || value.trim() === "") return null;
+            return wholeNumber(value);
+          };
           const body: Record<string, unknown> = {
             name: draft.name,
             genericName: draft.genericName,
@@ -271,7 +206,12 @@ export function InventoryScreen() {
             stripPrice: wholeNumber(draft.stripPrice) ?? 0,
             packPrice: wholeNumber(draft.packPrice) ?? 0,
             form: draft.form,
-            strength: draft.strength,
+            strengthValue: draft.strengthValue,
+            strengthUnit: draft.strengthUnit,
+            description: draft.description,
+            originCountry: draft.originCountry,
+            rssbCover: cover(draft.rssbCover),
+            mutuelleCover: cover(draft.mutuelleCover),
             sku: draft.sku,
             unitPrice,
             reorderLevel,
@@ -439,265 +379,5 @@ function Shelf({
         </div>
       )}
     </Card>
-  );
-}
-
-function DrugDialog({
-  drug,
-  open,
-  suppliers,
-  canCreateSupplier,
-  defaultReorder,
-  error,
-  pending,
-  onSupplierCreated,
-  onClose,
-  onSubmit,
-}: {
-  drug: Drug | null;
-  open: boolean;
-  suppliers: string[];
-  canCreateSupplier: boolean;
-  defaultReorder: string;
-  error: string | null;
-  pending: boolean;
-  onSupplierCreated: (name: string) => void;
-  onClose: () => void;
-  onSubmit: (draft: DrugDraft) => void;
-}) {
-  const [draft, setDraft] = useState<DrugDraft>(() => (drug ? draftFromDrug(drug) : emptyDrug(defaultReorder)));
-  const [generics, setGenerics] = useState<string[]>([]);
-  const [movements, setMovements] = useState<Movement[]>([]);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancel = false;
-    api<{ generics: string[] }>("/api/generics")
-      .then((result) => {
-        if (!cancel) setGenerics(result.generics);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancel = true;
-    };
-  }, []);
-
-  const typedGeneric = draft.genericName.trim();
-  const knownGeneric = generics.some((name) => name.toLowerCase() === typedGeneric.toLowerCase());
-
-  useEffect(() => {
-    if (!drug) return;
-    let cancel = false;
-    api<{ movements: Movement[] }>(`/api/drugs/${drug.id}`)
-      .then((result) => {
-        if (!cancel) setMovements(result.movements);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancel = true;
-    };
-  }, [drug]);
-
-  function set<K extends keyof DrugDraft>(key: K, value: DrugDraft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>{drug ? drug.name : "Add a drug"}</DialogTitle>
-          <DialogDescription>
-            {drug
-              ? "Shelf quantity changes only when you sell, dispense, or receive a supplier order."
-              : "Opening quantity is the stock you already have. Later changes go through sales or deliveries."}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-3 sm:grid-cols-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit(draft);
-          }}
-        >
-          {error ? <div className="sm:col-span-2"><Notice>{error}</Notice></div> : null}
-          {drug ? <BrandPhotos drugId={drug.id} /> : (
-            <div className="space-y-2 sm:col-span-2">
-              <span className="text-sm font-medium">Packaging photos</span>
-              <div className="flex flex-wrap items-center gap-2">
-                {draft.photos.map((photo, index) => (
-                  <div key={photo.slice(0, 32) + index} className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo} alt="" className="size-16 rounded-lg object-cover" />
-                    <button
-                      type="button"
-                      className="absolute -right-1 -top-1 rounded-full bg-ink px-1.5 text-[10px] text-paper-2"
-                      onClick={() => setDraft((current) => ({ ...current, photos: current.photos.filter((_, item) => item !== index) }))}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <label className="inline-flex cursor-pointer items-center rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm">
-                  Add photo
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      event.target.value = "";
-                      if (!file) return;
-                      setPhotoError(null);
-                      void compressPhoto(file)
-                        .then((photo) => setDraft((current) => ({ ...current, photos: [...current.photos, photo].slice(0, 6) })))
-                        .catch((caught: unknown) => setPhotoError(caught instanceof Error ? caught.message : "Could not read that photo."));
-                    }}
-                  />
-                </label>
-              </div>
-              {photoError ? <p className="text-sm text-clay">{photoError}</p> : null}
-            </div>
-          )}
-          <label className="space-y-1.5 sm:col-span-2">
-            <span className="text-sm font-medium">Name</span>
-            <Input value={draft.name} onChange={(event) => set("name", event.target.value)} required />
-          </label>
-          <label className="space-y-1.5 sm:col-span-2">
-            <span className="text-sm font-medium">Generic group</span>
-            <Input
-              list="generic-groups"
-              value={draft.genericName}
-              onChange={(event) => set("genericName", event.target.value)}
-              placeholder="Paracetamol"
-              required
-            />
-            <datalist id="generic-groups">
-              {generics.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
-            <span className="block text-xs text-muted">
-              {typedGeneric.length >= 2 && !knownGeneric
-                ? `${typedGeneric} will be added as a new generic group when you save.`
-                : "Required. Pick a group such as paracetamol, or type a new one."}
-            </span>
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Manufacturer</span>
-            <Input value={draft.manufacturer} onChange={(event) => set("manufacturer", event.target.value)} />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Barcode</span>
-            <Input value={draft.barcode} onChange={(event) => set("barcode", event.target.value)} />
-          </label>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input type="checkbox" checked={draft.rxOnly} onChange={(event) => set("rxOnly", event.target.checked)} />
-            Prescription only. The counter cannot sell it without a filed script.
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Category</span>
-            <Input list="categories" value={draft.category} onChange={(event) => set("category", event.target.value)} required />
-            <datalist id="categories">
-              {categorySuggestions.map((category) => <option key={category} value={category} />)}
-            </datalist>
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Form</span>
-            <select className={selectClass()} value={draft.form} onChange={(event) => set("form", event.target.value)}>
-              {drugForms.map((form) => <option key={form} value={form}>{form}</option>)}
-              {draft.form && !drugForms.includes(draft.form as (typeof drugForms)[number]) ? (
-                <option value={draft.form}>{draft.form}</option>
-              ) : null}
-            </select>
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Base unit</span>
-            <Input value={draft.baseUnit} onChange={(event) => set("baseUnit", event.target.value)} required />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Pack</span>
-            <Input value={draft.packUnit} onChange={(event) => set("packUnit", event.target.value)} required />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Base units per pack</span>
-            <Input inputMode="numeric" value={draft.unitsPerPack} onChange={(event) => set("unitsPerPack", event.target.value)} />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Strength</span>
-            <Input value={draft.strength} onChange={(event) => set("strength", event.target.value)} />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">SKU</span>
-            <Input value={draft.sku} onChange={(event) => set("sku", event.target.value)} required />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Selling price (RWF)</span>
-            <Input
-              inputMode="numeric"
-              value={draft.unitPrice}
-              onChange={(event) => set("unitPrice", event.target.value)}
-            />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Strip price (RWF)</span>
-            <Input inputMode="numeric" value={draft.stripPrice} onChange={(event) => set("stripPrice", event.target.value)} placeholder="Optional" />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Box price (RWF)</span>
-            <Input inputMode="numeric" value={draft.packPrice} onChange={(event) => set("packPrice", event.target.value)} placeholder="Optional" />
-          </label>
-          {drug ? (
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">On hand</span>
-              <p className="flex h-10 items-center text-sm tabular-nums">
-                {describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}
-              </p>
-            </div>
-          ) : (
-            <label className="space-y-1.5">
-              <span className="text-sm font-medium">Opening quantity</span>
-              <Input inputMode="numeric" value={draft.openingQuantity} onChange={(event) => set("openingQuantity", event.target.value)} />
-            </label>
-          )}
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Reorder at (base units)</span>
-            <Input inputMode="numeric" value={draft.reorderLevel} onChange={(event) => set("reorderLevel", event.target.value)} />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Expiry</span>
-            <Input type="date" value={draft.expiryDate} onChange={(event) => set("expiryDate", event.target.value)} required />
-          </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Batch</span>
-            <Input value={draft.batchNumber} onChange={(event) => set("batchNumber", event.target.value)} />
-          </label>
-          <SupplierField
-            label="Usual supplier"
-            value={draft.supplier}
-            suppliers={suppliers}
-            canCreate={canCreateSupplier}
-            onChange={(value) => set("supplier", value)}
-            onCreated={onSupplierCreated}
-          />
-          {movements.length > 0 ? (
-            <div className="sm:col-span-2">
-              <p className="mb-2 text-sm font-medium">Recent movements</p>
-              <ul className="space-y-1 text-sm text-muted">
-                {movements.map((movement, index) => (
-                  <li key={`${movement.at}-${index}`}>
-                    {movement.kind === "receipt" ? "+" : "−"}
-                    {movement.quantity} · {movement.detail} · {formatWhen(movement.at)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <DialogFooter className="sm:col-span-2">
-            <Button type="submit" disabled={pending}>{pending ? "Saving…" : drug ? "Save details" : "Add to catalog"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

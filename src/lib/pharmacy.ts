@@ -11,6 +11,7 @@ import { ensureGenericVariant, fiscalMark, resolveCategory, safetyWarnings } fro
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
+import { shapeStrength, splitStrength } from "./strength";
 import { addDays, kigaliToday } from "./time";
 import { formatRwf } from "./format";
 import type {
@@ -48,6 +49,12 @@ type DrugRow = {
   pack_price: number;
   form: string;
   strength: string;
+  strength_value: string;
+  strength_unit: string;
+  description: string;
+  origin_country: string;
+  rssb_cover: number | null;
+  mutuelle_cover: number | null;
   sku: string;
   unit_price: number;
   quantity: number;
@@ -66,7 +73,8 @@ type DrugRow = {
 
 const drugSelect = `
   select
-    d.id, d.name, d.generic_name, d.category, d.form, d.strength, d.sku,
+    d.id, d.name, d.generic_name, d.category, d.form, d.strength, d.strength_value, d.strength_unit,
+    d.description, d.origin_country, d.rssb_cover, d.mutuelle_cover, d.sku,
     d.unit_price, d.quantity, d.reorder_level, d.expiry_date, d.batch_number, d.supplier,
     d.base_unit, d.pack_unit, d.units_per_pack,
     d.category_id, d.subcategory_id, sub.name as subcategory,
@@ -129,6 +137,12 @@ function toDrug(row: DrugRow, today = kigaliToday()): Drug {
     packPrice: num(row.pack_price),
     form: text(row.form),
     strength: text(row.strength),
+    strengthValue: text(row.strength_value) || splitStrength(text(row.strength)).value,
+    strengthUnit: text(row.strength_unit) || splitStrength(text(row.strength)).unit,
+    description: text(row.description),
+    originCountry: text(row.origin_country),
+    rssbCover: row.rssb_cover == null ? null : num(row.rssb_cover),
+    mutuelleCover: row.mutuelle_cover == null ? null : num(row.mutuelle_cover),
     sku: text(row.sku),
     unitPrice: num(row.unit_price),
     quantity,
@@ -320,6 +334,7 @@ function requireGeneric(name: string | undefined) {
 export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
   assertAccess(user.role, "inventory");
   const genericName = requireGeneric(input.genericName);
+  const shaped = shapeStrength(input);
   const photo = storedPhoto(input.photo);
   try {
     const [row] = await sql<{ id: number }>(
@@ -334,7 +349,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
         genericName,
         input.category,
         input.form,
-        input.strength,
+        shaped.strength,
         input.sku,
         input.unitPrice,
         input.openingQuantity,
@@ -356,7 +371,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
     });
     const grouped = await ensureGenericVariant(sql, {
       genericName,
-      strength: input.strength ?? "",
+      strength: shaped.strength,
       form: input.form,
     });
     await sql(
@@ -364,8 +379,10 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
          category = $1, category_id = $2, subcategory_id = $3,
          generic_id = $4, variant_id = $5,
          brand_name = $6, manufacturer = $7, barcode = $8, rx_only = $9,
-         strip_size = $10, strip_price = $11, pack_price = $12
-       where id = $13`,
+         strip_size = $10, strip_price = $11, pack_price = $12,
+         description = $13, origin_country = $14, strength_value = $15, strength_unit = $16,
+         rssb_cover = $17, mutuelle_cover = $18
+       where id = $19`,
       [
         category.category,
         category.categoryId,
@@ -379,6 +396,12 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
         input.stripSize ?? 10,
         input.stripPrice ?? 0,
         input.packPrice ?? 0,
+        input.description ?? "",
+        input.originCountry ?? "",
+        shaped.value,
+        shaped.unit,
+        input.rssbCover ?? null,
+        input.mutuelleCover ?? null,
         row.id,
       ],
     );
@@ -418,6 +441,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
 export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput): Promise<Drug> {
   assertAccess(user.role, "inventory");
   const genericName = requireGeneric(input.genericName);
+  const shaped = shapeStrength(input);
   try {
     const [row] = await sql<{ id: number }>(
       `update drugs set
@@ -435,7 +459,7 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
         genericName,
         input.category,
         input.form,
-        input.strength,
+        shaped.strength,
         input.sku,
         input.unitPrice,
         input.reorderLevel,
@@ -456,7 +480,7 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
     });
     const grouped = await ensureGenericVariant(sql, {
       genericName,
-      strength: input.strength ?? "",
+      strength: shaped.strength,
       form: input.form,
     });
     await sql(
@@ -464,8 +488,10 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
          category = $1, category_id = $2, subcategory_id = $3,
          generic_id = $4, variant_id = $5,
          brand_name = $6, manufacturer = $7, barcode = $8, rx_only = $9,
-         strip_size = $10, strip_price = $11, pack_price = $12
-       where id = $13`,
+         strip_size = $10, strip_price = $11, pack_price = $12,
+         description = $13, origin_country = $14, strength_value = $15, strength_unit = $16,
+         rssb_cover = $17, mutuelle_cover = $18
+       where id = $19`,
       [
         category.category,
         category.categoryId,
@@ -479,6 +505,12 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
         input.stripSize ?? 10,
         input.stripPrice ?? 0,
         input.packPrice ?? 0,
+        input.description ?? "",
+        input.originCountry ?? "",
+        shaped.value,
+        shaped.unit,
+        input.rssbCover ?? null,
+        input.mutuelleCover ?? null,
         id,
       ],
     );
@@ -530,6 +562,7 @@ export async function deleteDrug(user: Staff, id: number) {
 }
 
 export type BillLine = {
+  drugId: number;
   name: string;
   strength: string;
   quantity: number;
@@ -553,6 +586,8 @@ export type Bill = {
   lines: BillLine[];
   payments: BillPayment[];
   history: Array<{ at: string; method: string; amount: number; by: string }>;
+  coverages: Array<{ insurer: string; amount: number }>;
+  patientId: number | null;
   total: number;
   balance: number;
   fiscalNote: string;
@@ -568,7 +603,7 @@ export type CreditAccount = {
 
 export async function listBills(): Promise<Bill[]> {
   const rows = await sql(
-    `select s.id, s.basket_id, s.quantity, s.unit_price, s.total, s.customer_name, s.customer_phone, s.due_on, s.created_at,
+    `select s.id, s.basket_id, s.drug_id, s.patient_id, s.quantity, s.unit_price, s.total, s.customer_name, s.customer_phone, s.due_on, s.created_at,
             s.receipt_number, s.directions, s.lot_label, s.fiscal_code,
             d.name as drug_name, d.strength, u.name as seller_name,
             coalesce(m.name, '') as payment_method_name,
@@ -600,6 +635,23 @@ export async function listBills(): Promise<Bill[]> {
         [saleIds],
       );
   const coveredBySale = new Map(coveredRows.map((row) => [num(row.sale_id), num(row.covered)]));
+  const coverageRows = saleIds.length === 0
+    ? []
+    : await sql(
+        `select sc.sale_id, sc.insurer_amount, i.name as insurer
+         from sale_coverages sc
+         join insurers i on i.id = sc.insurer_id
+         where sc.sale_id = any($1::int[])
+         order by sc.id`,
+        [saleIds],
+      );
+  const coverageBySale = new Map<number, Bill["coverages"]>();
+  for (const row of coverageRows) {
+    const id = num(row.sale_id);
+    const list = coverageBySale.get(id) ?? [];
+    list.push({ insurer: text(row.insurer), amount: num(row.insurer_amount) });
+    coverageBySale.set(id, list);
+  }
   const paidBySale = new Map<number, Array<{ name: string; amount: number }>>();
   const historyBySale = new Map<number, Bill["history"]>();
   for (const row of collections) {
@@ -652,6 +704,7 @@ export async function listBills(): Promise<Bill[]> {
       sellerName: text(first?.seller_name),
       receiptNumbers: ordered.map((line) => text(line.receipt_number)).filter(Boolean),
       lines: ordered.map((line) => ({
+        drugId: num(line.drug_id),
         name: text(line.drug_name),
         strength: text(line.strength),
         quantity: num(line.quantity),
@@ -661,7 +714,19 @@ export async function listBills(): Promise<Bill[]> {
         lotLabel: text(line.lot_label),
       })),
       payments: [...amounts.entries()].map(([method, amount]) => ({ method, amount })),
-      history: ordered.flatMap((line) => historyBySale.get(num(line.id)) ?? []),
+      history: [
+        ...(collected.length === 0 && settles
+          ? ordered.map((line) => ({
+              at: text(line.created_at),
+              method: text(line.payment_method_name) || "Payment",
+              amount: num(line.total),
+              by: text(line.seller_name),
+            }))
+          : []),
+        ...ordered.flatMap((line) => historyBySale.get(num(line.id)) ?? []),
+      ],
+      coverages: ordered.flatMap((line) => coverageBySale.get(num(line.id)) ?? []),
+      patientId: first?.patient_id == null ? null : num(first.patient_id),
       total,
       balance: Math.max(0, total - paid - covered),
       fiscalNote: fiscal ? `Local fiscal mark ${fiscal}. Not an RRA-signed EBM receipt.` : "",

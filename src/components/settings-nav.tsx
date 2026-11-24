@@ -8,6 +8,7 @@ const links = [
   { href: "/settings/payments", label: "Payments" },
   { href: "/settings/business", label: "Business" },
   { href: "/settings/categories", label: "Categories" },
+  { href: "/settings/units", label: "Units" },
   { href: "/settings/insurance", label: "Insurance" },
 ];
 

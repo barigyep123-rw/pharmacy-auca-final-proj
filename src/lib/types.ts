@@ -26,6 +26,12 @@ export type Drug = {
   packPrice: number;
   form: string;
   strength: string;
+  strengthValue: string;
+  strengthUnit: string;
+  description: string;
+  originCountry: string;
+  rssbCover: number | null;
+  mutuelleCover: number | null;
   sku: string;
   unitPrice: number;
   quantity: number;

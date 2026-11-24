@@ -12,6 +12,7 @@ import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
+import { SearchableSelect } from "./searchable-select";
 
 type StaffAccount = {
   id: number;
@@ -20,10 +21,6 @@ type StaffAccount = {
   role: Role;
   active: boolean;
 };
-
-function selectClass() {
-  return "h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm";
-}
 
 export function SettingsScreen() {
   const me = useStaff();
@@ -181,13 +178,11 @@ export function SettingsScreen() {
             </label>
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Role</span>
-              <select className={selectClass()} value={role} onChange={(event) => setRole(event.target.value as Role)}>
-                {roles.map((item) => (
-                  <option key={item} value={item}>
-                    {roleLabel(item)}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={role}
+                options={roles.map((item) => ({ value: item, label: roleLabel(item) }))}
+                onChange={(value) => setRole(value as Role)}
+              />
             </label>
             <DialogFooter>
               <Button type="button" variant="quiet" onClick={() => setOpen(false)}>

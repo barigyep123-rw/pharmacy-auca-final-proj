@@ -90,6 +90,8 @@ type DrugFace = {
   generic_name: string;
   category: string;
   rx_only: boolean;
+  rssb_cover: number | null;
+  mutuelle_cover: number | null;
 };
 
 function num(value: unknown) {
@@ -416,7 +418,7 @@ export async function quoteCoverage(input: {
 
   const drugIds = input.lines.map((line) => line.drugId);
   const drugs = await sql<DrugFace>(
-    `select id, name, brand_name, generic_name, category, rx_only from drugs where id = any($1::int[])`,
+    `select id, name, brand_name, generic_name, category, rx_only, rssb_cover, mutuelle_cover from drugs where id = any($1::int[])`,
     [drugIds],
   );
   const today = kigaliToday();
@@ -452,10 +454,18 @@ export async function quoteCoverage(input: {
         warnings.push(`${text(drug.name)} is excluded by ${item.company.name}. The patient pays that line.`);
         continue;
       }
-      let percent: number | null = null;
-      if (rule?.covered) percent = rule.coverPercent ?? item.company.coverPercent;
-      else if (!drug.rx_only && !item.company.coverOtc) percent = null;
-      else if (item.company.formularyMode === "open") percent = item.company.coverPercent;
+      const named = item.company.name.toLowerCase();
+      const drugPercent = named === "rssb"
+        ? (drug.rssb_cover == null ? null : num(drug.rssb_cover))
+        : named.includes("mutuelle")
+          ? (drug.mutuelle_cover == null ? null : num(drug.mutuelle_cover))
+          : null;
+      let percent: number | null = drugPercent;
+      if (percent == null) {
+        if (rule?.covered) percent = rule.coverPercent ?? item.company.coverPercent;
+        else if (!drug.rx_only && !item.company.coverOtc) percent = null;
+        else if (item.company.formularyMode === "open") percent = item.company.coverPercent;
+      }
       if (percent == null || percent <= 0) {
         if (item.company.formularyMode === "list" && !rule) {
           warnings.push(`${text(drug.name)} is not on the ${item.company.name} list, so the patient pays it.`);

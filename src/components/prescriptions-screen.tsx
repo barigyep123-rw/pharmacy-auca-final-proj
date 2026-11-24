@@ -9,6 +9,7 @@ import { compressPhoto } from "@/lib/compress-photo";
 import { formatRwf, formatWhen } from "@/lib/format";
 import type { Drug, PaymentReceipt, Prescription } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
+import { SearchableSelect } from "./searchable-select";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -372,21 +373,18 @@ export function PrescriptionsScreen({ today }: { today: string }) {
             <div className="space-y-3">
               {lines.map((line, index) => (
                 <div key={line.key} className="grid gap-2 rounded-xl border border-line p-3 sm:grid-cols-[1fr_6rem_1fr_auto]">
-                  <select
-                    className="h-10 rounded-lg border border-line bg-paper-2 px-2 text-sm"
+                  <SearchableSelect
+                    ariaLabel={`Drug ${index + 1}`}
                     value={line.drugId}
-                    onChange={(event) =>
-                      setLines((current) => current.map((item) => (item.key === line.key ? { ...item, drugId: event.target.value } : item)))
+                    placeholder="Drug"
+                    options={drugs.map((drug) => ({
+                      value: String(drug.id),
+                      label: `${drug.name} ${drug.strength} · ${drug.quantity} on hand`,
+                    }))}
+                    onChange={(value) =>
+                      setLines((current) => current.map((item) => (item.key === line.key ? { ...item, drugId: value } : item)))
                     }
-                    aria-label={`Drug ${index + 1}`}
-                  >
-                    <option value="">Drug</option>
-                    {drugs.map((drug) => (
-                      <option key={drug.id} value={drug.id}>
-                        {drug.name} {drug.strength} · {drug.quantity} on hand
-                      </option>
-                    ))}
-                  </select>
+                  />
                   <Input
                     aria-label={`Quantity ${index + 1}`}
                     inputMode="numeric"
@@ -505,17 +503,14 @@ export function PrescriptionsScreen({ today }: { today: string }) {
                 <DialogFooter>
                   <label className="mr-auto flex items-center gap-2 text-sm">
                     <span className="text-muted">Payment</span>
-                    <select
-                      className="h-9 rounded-lg border border-line bg-paper-2 px-2"
-                      value={paymentMethodId ?? ""}
-                      onChange={(event) => setPaymentMethodId(Number(event.target.value))}
-                    >
-                      {methods.map((method) => (
-                        <option key={method.id} value={method.id}>
-                          {method.name}{method.settlesImmediately ? "" : " · on account"}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={paymentMethodId == null ? "" : String(paymentMethodId)}
+                      options={methods.map((method) => ({
+                        value: String(method.id),
+                        label: `${method.name}${method.settlesImmediately ? "" : " · on account"}`,
+                      }))}
+                      onChange={(value) => setPaymentMethodId(Number(value))}
+                    />
                   </label>
                   <Button variant="quiet" disabled={pending} onClick={() => void cancel(active.id)}>
                     Cancel script
@@ -538,17 +533,14 @@ export function PrescriptionsScreen({ today }: { today: string }) {
                 <DialogFooter>
                   <label className="mr-auto flex items-center gap-2 text-sm">
                     <span className="text-muted">Payment</span>
-                    <select
-                      className="h-9 rounded-lg border border-line bg-paper-2 px-2"
-                      value={paymentMethodId ?? ""}
-                      onChange={(event) => setPaymentMethodId(Number(event.target.value))}
-                    >
-                      {methods.map((method) => (
-                        <option key={method.id} value={method.id}>
-                          {method.name}{method.settlesImmediately ? "" : " · on account"}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={paymentMethodId == null ? "" : String(paymentMethodId)}
+                      options={methods.map((method) => ({
+                        value: String(method.id),
+                        label: `${method.name}${method.settlesImmediately ? "" : " · on account"}`,
+                      }))}
+                      onChange={(value) => setPaymentMethodId(Number(value))}
+                    />
                   </label>
                   <Button disabled={pending} onClick={() => void refill(active.id)}>
                     {pending ? "Working…" : "Dispense refill"}

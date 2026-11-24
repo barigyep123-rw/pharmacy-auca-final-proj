@@ -7,6 +7,7 @@ import type { Drug } from "@/lib/types";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
+import { SearchableSelect } from "./searchable-select";
 
 type Lot = { id: number; lotNumber: string; expiryDate: string; quantity: number; expired: boolean };
 type CountLine = { drugId: number; name: string; strength: string; expected: number; counted: number };
@@ -75,11 +76,11 @@ export function StockTools({ drugs }: { drugs: Drug[] }) {
         <form className="space-y-3" onSubmit={(event) => void adjust(event)}>
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">Drug</span>
-            <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={drugId} onChange={(event) => setDrugId(Number(event.target.value))}>
-              {drugs.map((drug) => (
-                <option key={drug.id} value={drug.id}>{drug.name} {drug.strength}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={drugId === "" ? "" : String(drugId)}
+              options={drugs.map((drug) => ({ value: String(drug.id), label: `${drug.name} ${drug.strength}`.trim() }))}
+              onChange={(value) => setDrugId(Number(value))}
+            />
           </label>
           {lots.length > 0 ? (
             <p className="text-xs text-muted">
@@ -88,12 +89,16 @@ export function StockTools({ drugs }: { drugs: Drug[] }) {
           ) : null}
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">What happened</span>
-            <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}>
-              <option value="return_restock">Customer return, put back on the shelf</option>
-              <option value="return_dispose">Customer return, do not restock</option>
-              <option value="damaged">Damaged, write off</option>
-              <option value="expired">Expired, write off</option>
-            </select>
+            <SearchableSelect
+              value={kind}
+              options={[
+                { value: "return_restock", label: "Customer return, put back on the shelf" },
+                { value: "return_dispose", label: "Customer return, do not restock" },
+                { value: "damaged", label: "Damaged, write off" },
+                { value: "expired", label: "Expired, write off" },
+              ]}
+              onChange={(value) => setKind(value as typeof kind)}
+            />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1.5">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
@@ -9,6 +10,7 @@ import type { Bill, CreditAccount } from "@/lib/pharmacy";
 import { kigaliToday } from "@/lib/time";
 import type { PaymentReceipt } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
+import { SearchableSelect } from "./searchable-select";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -28,6 +30,7 @@ export function BillsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
+  const [openLine, setOpenLine] = useState<number | null>(null);
   const today = kigaliToday();
 
   async function load() {
@@ -167,6 +170,7 @@ export function BillsScreen() {
                         variant="quiet"
                         onClick={() => {
                           setOpen(bill);
+                          setOpenLine(null);
                           setAmount(bill.balance > 0 ? String(bill.balance) : "");
                           setFormError(null);
                         }}
@@ -188,15 +192,41 @@ export function BillsScreen() {
               <DialogHeader>
                 <DialogTitle>{open.customerName || "Walk-in"} · {formatRwf(open.total)}</DialogTitle>
               </DialogHeader>
-              <ul className="divide-y divide-line text-sm">
-                {open.lines.map((line, index) => (
-                  <li key={`${line.name}-${index}`} className="flex justify-between gap-3 py-2">
-                    <span>{line.name} {line.strength} · {line.quantity} × {formatRwf(line.unitPrice)}</span>
-                    <span className="tabular-nums">{formatRwf(line.total)}</span>
-                  </li>
-                ))}
-              </ul>
-              <div>
+              <div className="grid gap-3 text-sm sm:grid-cols-2">
+                <section className="rounded-xl border border-line p-3">
+                  <h3 className="font-medium">Customer</h3>
+                  <p className="mt-1">{open.customerName || "Walk-in"}</p>
+                  <p className="text-muted">{open.customerPhone || "No phone"}</p>
+                  <p className="text-muted">{open.dueOn ? `Due ${formatDay(open.dueOn)}` : "No due date"}</p>
+                  {open.patientId ? <Link className="text-pine hover:underline" href={`/patients/${open.patientId}`}>Open the patient record</Link> : null}
+                </section>
+                <section className="rounded-xl border border-line p-3">
+                  <h3 className="font-medium">Sale</h3>
+                  <p className="mt-1 text-muted">{formatWhen(open.createdAt)} · {open.sellerName}</p>
+                  <p className="text-muted">{open.receiptNumbers.join(", ") || "No receipt number"}</p>
+                  <p>Balance {open.balance > 0 ? formatRwf(open.balance) : "Paid"}</p>
+                  {open.fiscalNote ? <p className="text-xs text-muted">{open.fiscalNote}</p> : null}
+                </section>
+              </div>
+              <section>
+                <h3 className="text-sm font-medium">Lines</h3>
+                <ul className="divide-y divide-line text-sm">
+                  {open.lines.map((line, index) => (
+                    <li key={`${line.drugId}-${index}`}>
+                      <button type="button" className="flex w-full justify-between gap-3 py-2 text-left" onClick={() => setOpenLine(openLine === index ? null : index)}>
+                        <span>{line.name} {line.strength} · {line.quantity} × {formatRwf(line.unitPrice)}</span>
+                        <span className="tabular-nums">{formatRwf(line.total)}</span>
+                      </button>
+                      {openLine === index ? (
+                        <p className="pb-2 text-xs text-muted">
+                          {line.lotLabel || "No lot"}{line.directions ? ` · ${line.directions}` : ""}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <section>
                 <h3 className="text-sm font-medium">Payments</h3>
                 {open.history.length === 0 ? <p className="mt-1 text-sm text-muted">No payment yet.</p> : (
                   <ul className="mt-1 text-sm text-muted">
@@ -205,7 +235,14 @@ export function BillsScreen() {
                     ))}
                   </ul>
                 )}
-              </div>
+                {open.coverages.length > 0 ? (
+                  <ul className="mt-2 text-sm text-muted">
+                    {open.coverages.map((coverage, index) => (
+                      <li key={`${coverage.insurer}-${index}`}>{coverage.insurer} cover {formatRwf(coverage.amount)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
               <p className="text-sm">Still due {formatRwf(open.balance)}{open.dueOn ? ` by ${formatDay(open.dueOn)}` : ""}.</p>
               {open.balance > 0 ? (
                 <form className="space-y-3" onSubmit={(event) => void collect(event)}>
@@ -216,9 +253,11 @@ export function BillsScreen() {
                   </label>
                   <label className="block space-y-1.5">
                     <span className="text-sm font-medium">Paid with</span>
-                    <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={methodId ?? ""} onChange={(event) => setMethodId(Number(event.target.value))}>
-                      {methods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
-                    </select>
+                    <SearchableSelect
+                      value={methodId == null ? "" : String(methodId)}
+                      options={methods.map((method) => ({ value: String(method.id), label: method.name }))}
+                      onChange={(value) => setMethodId(Number(value))}
+                    />
                   </label>
                   <DialogFooter>
                     <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Record payment"}</Button>

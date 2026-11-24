@@ -10,6 +10,7 @@ import type { PatientHistory } from "@/lib/patients";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { SearchableSelect } from "./searchable-select";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
@@ -147,9 +148,11 @@ export function PatientHistoryScreen({ id }: { id: number }) {
             >
               <label className="space-y-1.5 text-sm">
                 Insurer
-                <select className="h-10 rounded-lg border border-line bg-paper-2 px-2" value={insurerId ?? ""} onChange={(event) => setInsurerId(Number(event.target.value))}>
-                  {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={insurerId == null ? "" : String(insurerId)}
+                  options={companies.map((company) => ({ value: String(company.id), label: company.name }))}
+                  onChange={(value) => setInsurerId(Number(value))}
+                />
               </label>
               <label className="space-y-1.5 text-sm">
                 Member number
@@ -202,11 +205,16 @@ export function PatientHistoryScreen({ id }: { id: number }) {
             <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} />
             <label className="block space-y-1.5 text-sm">
               Sex
-              <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2" value={sex} onChange={(event) => setSex(event.target.value)}>
-                <option value="">Not recorded</option>
-                <option value="female">Female</option>
-                <option value="male">Male</option>
-              </select>
+              <SearchableSelect
+                value={sex}
+                placeholder="Not recorded"
+                options={[
+                  { value: "", label: "Not recorded" },
+                  { value: "female", label: "Female" },
+                  { value: "male", label: "Male" },
+                ]}
+                onChange={setSex}
+              />
             </label>
             <label className="block space-y-1.5 text-sm">
               Date of birth
@@ -226,12 +234,17 @@ export function PatientHistoryScreen({ id }: { id: number }) {
             </label>
             <label className="block space-y-1.5 text-sm">
               Brand preference
-              <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2" value={brandPreference} onChange={(event) => setBrandPreference(event.target.value)}>
-                <option value="">No preference</option>
-                <option value="any">Any brand</option>
-                <option value="generic_only">Generic only</option>
-                <option value="brand">A named brand</option>
-              </select>
+              <SearchableSelect
+                value={brandPreference}
+                placeholder="No preference"
+                options={[
+                  { value: "", label: "No preference" },
+                  { value: "any", label: "Any brand" },
+                  { value: "generic_only", label: "Generic only" },
+                  { value: "brand", label: "A named brand" },
+                ]}
+                onChange={setBrandPreference}
+              />
             </label>
             <label className="block space-y-1.5 text-sm">
               Preferred brand

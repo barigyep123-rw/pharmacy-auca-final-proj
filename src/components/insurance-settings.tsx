@@ -9,6 +9,7 @@ import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
+import { SearchableSelect } from "./searchable-select";
 
 const kinds = [
   { id: "rssb", label: "RSSB" },
@@ -213,9 +214,7 @@ export function InsuranceSettings() {
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">Type</span>
-                  <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as InsurerCompany["kind"] })}>
-                    {kinds.map((kind) => <option key={kind.id} value={kind.id}>{kind.label}</option>)}
-                  </select>
+                  <SearchableSelect value={form.kind} options={kinds.map((kind) => ({ value: kind.id, label: kind.label }))} onChange={(value) => setForm({ ...form, kind: value as InsurerCompany["kind"] })} />
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">Phone</span>
@@ -235,11 +234,15 @@ export function InsuranceSettings() {
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">Limit period</span>
-                  <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={form.period} onChange={(event) => setForm({ ...form, period: event.target.value as InsurerCompany["period"] })}>
-                    <option value="month">Each month</option>
-                    <option value="year">Each year</option>
-                    <option value="prescription">Each prescription</option>
-                  </select>
+                  <SearchableSelect
+                    value={form.period}
+                    options={[
+                      { value: "month", label: "Each month" },
+                      { value: "year", label: "Each year" },
+                      { value: "prescription", label: "Each prescription" },
+                    ]}
+                    onChange={(value) => setForm({ ...form, period: value as InsurerCompany["period"] })}
+                  />
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">Spending limit (RWF)</span>
@@ -247,17 +250,25 @@ export function InsuranceSettings() {
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">When the limit is passed</span>
-                  <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={form.limitAction} onChange={(event) => setForm({ ...form, limitAction: event.target.value as InsurerCompany["limitAction"] })}>
-                    <option value="warn">Warn, insurer pays up to the cap</option>
-                    <option value="block">Block the sale until someone accepts it</option>
-                  </select>
+                  <SearchableSelect
+                    value={form.limitAction}
+                    options={[
+                      { value: "warn", label: "Warn, insurer pays up to the cap" },
+                      { value: "block", label: "Block the sale until someone accepts it" },
+                    ]}
+                    onChange={(value) => setForm({ ...form, limitAction: value as InsurerCompany["limitAction"] })}
+                  />
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-medium">Formulary</span>
-                  <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={form.formularyMode} onChange={(event) => setForm({ ...form, formularyMode: event.target.value as InsurerCompany["formularyMode"] })}>
-                    <option value="list">Only listed items are paid</option>
-                    <option value="open">Everything eligible, unless excluded</option>
-                  </select>
+                  <SearchableSelect
+                    value={form.formularyMode}
+                    options={[
+                      { value: "list", label: "Only listed items are paid" },
+                      { value: "open", label: "Everything eligible, unless excluded" },
+                    ]}
+                    onChange={(value) => setForm({ ...form, formularyMode: value as InsurerCompany["formularyMode"] })}
+                  />
                 </label>
                 <label className="flex items-center gap-2 text-sm sm:col-span-2">
                   <input type="checkbox" checked={form.coverOtc} onChange={(event) => setForm({ ...form, coverOtc: event.target.checked })} />
@@ -312,11 +323,15 @@ export function InsuranceSettings() {
                 <form className="grid gap-3 sm:grid-cols-2" onSubmit={(event) => void addFormularyRule(event)}>
                   <label className="space-y-1.5">
                     <span className="text-sm font-medium">Matches</span>
-                    <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm" value={scope} onChange={(event) => setScope(event.target.value as RuleScope)}>
-                      <option value="category">Category</option>
-                      <option value="generic">Generic</option>
-                      <option value="brand">Brand</option>
-                    </select>
+                    <SearchableSelect
+                      value={scope}
+                      options={[
+                        { value: "category", label: "Category" },
+                        { value: "generic", label: "Generic" },
+                        { value: "brand", label: "Brand" },
+                      ]}
+                      onChange={(value) => setScope(value as RuleScope)}
+                    />
                   </label>
                   <label className="space-y-1.5">
                     <span className="text-sm font-medium">Name</span>

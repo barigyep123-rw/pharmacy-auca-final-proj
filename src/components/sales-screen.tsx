@@ -9,6 +9,7 @@ import { addDays, kigaliToday } from "@/lib/time";
 import { baseCount, describeStock } from "@/lib/units";
 import type { Drug, PaymentReceipt } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
+import { SearchableSelect } from "./searchable-select";
 import { useStaff } from "./session";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -553,15 +554,11 @@ export function SalesScreen({ today }: { today: string }) {
           {payError ? <Notice>{payError}</Notice> : null}
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">Mode of payment</span>
-            <select
-              className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
-              value={methodId ?? ""}
-              onChange={(event) => setMethodId(Number(event.target.value))}
-            >
-              {nowMethods.map((method) => (
-                <option key={method.id} value={method.id}>{method.name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={methodId == null ? "" : String(methodId)}
+              options={nowMethods.map((method) => ({ value: String(method.id), label: method.name }))}
+              onChange={(value) => setMethodId(Number(value))}
+            />
           </label>
           <label className="mt-3 block space-y-1.5">
             <span className="text-sm font-medium">Amount paid now</span>
@@ -575,15 +572,11 @@ export function SalesScreen({ today }: { today: string }) {
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-sm font-medium">Second mode</span>
-                <select
-                  className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
-                  value={secondMethodId ?? ""}
-                  onChange={(event) => setSecondMethodId(Number(event.target.value))}
-                >
-                  {nowMethods.map((method) => (
-                    <option key={method.id} value={method.id}>{method.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={secondMethodId == null ? "" : String(secondMethodId)}
+                  options={nowMethods.map((method) => ({ value: String(method.id), label: method.name }))}
+                  onChange={(value) => setSecondMethodId(Number(value))}
+                />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-medium">Second amount</span>

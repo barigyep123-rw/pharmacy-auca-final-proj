@@ -9,6 +9,7 @@ import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
+import { SearchableSelect } from "./searchable-select";
 
 type Currency = {
   id: number;
@@ -39,8 +40,16 @@ const kinds: Array<{ id: PaymentKind; label: string }> = [
   { id: "custom", label: "Custom" },
 ];
 
-function selectClass() {
-  return "h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm";
+function KindField({ initial }: { initial: PaymentKind }) {
+  const [kind, setKind] = useState(initial);
+  return (
+    <SearchableSelect
+      name="kind"
+      value={kind}
+      onChange={(value) => setKind(value as PaymentKind)}
+      options={kinds.map((item) => ({ value: item.id, label: item.label }))}
+    />
+  );
 }
 
 function kindLabel(kind: PaymentKind) {
@@ -333,9 +342,7 @@ export function PaymentsSettings() {
               </label>
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium">Kind</span>
-                <select className={selectClass()} name="kind" defaultValue={methodOpen?.kind ?? "custom"}>
-                  {kinds.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
+                <KindField initial={methodOpen?.kind ?? "custom"} />
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="settlesImmediately" defaultChecked={methodOpen ? methodOpen.settlesImmediately : true} />

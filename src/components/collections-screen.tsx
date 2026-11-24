@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { SearchableSelect } from "./searchable-select";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
 type Tender = { id: number; name: string; settlesImmediately: boolean };
@@ -155,15 +156,11 @@ export function CollectionsScreen() {
               </label>
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium">Paid with</span>
-                <select
-                  className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
-                  value={paymentMethodId ?? ""}
-                  onChange={(event) => setPaymentMethodId(Number(event.target.value))}
-                >
-                  {methods.map((method) => (
-                    <option key={method.id} value={method.id}>{method.name}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={paymentMethodId == null ? "" : String(paymentMethodId)}
+                  options={methods.map((method) => ({ value: String(method.id), label: method.name }))}
+                  onChange={(value) => setPaymentMethodId(Number(value))}
+                />
               </label>
               <DialogFooter>
                 <Button type="button" variant="quiet" onClick={() => setTarget(null)}>Cancel</Button>
