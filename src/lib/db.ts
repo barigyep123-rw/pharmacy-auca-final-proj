@@ -74,19 +74,68 @@ export async function withTransaction<T>(fn: (query: QueryFn) => Promise<T>): Pr
   });
 }
 
+let migrationTask: Promise<void> | null = null;
+
+async function ensureMigrations() {
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+  if (!migrationTask) {
+    const run = databaseUrl() !== "" ? applyRemoteMigrations() : db().local ? applyLocalMigrations() : Promise.resolve();
+    migrationTask = run.finally(() => {
+      migrationTask = null;
+    });
+  }
+  await migrationTask;
+}
+
 export async function initDb() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
-  if (db().ready) return db().ready;
-  db().ready = start().catch((error: unknown) => {
-    db().ready = undefined;
-    throw error;
-  });
-  return db().ready;
+  if (!db().ready) {
+    db().ready = start().catch((error: unknown) => {
+      db().ready = undefined;
+      throw error;
+    });
+  }
+  await db().ready;
+  // A long-lived dev process keeps the database open. New migration files still
+  // have to land, or the next request queries columns that are not there yet.
+  await ensureMigrations();
+}
+
+async function applyRemoteMigrations() {
+  const pool = (db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 }));
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      create table if not exists schema_migrations (
+        name text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `);
+    const doneRows = await client.query<{ name: string }>("select name from schema_migrations");
+    const done = new Set(doneRows.rows.map((row) => row.name));
+    const files = (await readdir(MIGRATIONS).catch(() => [])).filter((file) => file.endsWith(".sql")).sort();
+    for (const file of files) {
+      if (done.has(file)) continue;
+      const script = await readFile(path.join(MIGRATIONS, file), "utf8");
+      await client.query("begin");
+      try {
+        await client.query(script);
+        await client.query("insert into schema_migrations (name) values ($1)", [file]);
+        await client.query("commit");
+      } catch (error) {
+        await client.query("rollback");
+        throw error;
+      }
+    }
+  } finally {
+    client.release();
+  }
 }
 
 async function start() {
   if (databaseUrl() !== "") {
     db().pool ??= new pg.Pool({ connectionString: databaseUrl(), max: 5 });
+    await applyRemoteMigrations();
     await seedIfEmpty(true);
     return;
   }
