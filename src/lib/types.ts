@@ -18,6 +18,10 @@ export type Drug = {
   unitPrice: number;
   quantity: number;
   reorderLevel: number;
+  baseUnit: string;
+  packUnit: string;
+  unitsPerPack: number;
+  allocated: number;
   expiryDate: string;
   batchNumber: string;
   supplier: string;
@@ -82,18 +86,30 @@ export type PrescriptionItem = {
   expiryDate: string;
 };
 
+export type PrescriptionFill = {
+  id: number;
+  fillNumber: number;
+  dispensedByName: string;
+  createdAt: string;
+};
+
 export type Prescription = {
   id: number;
+  patientId: number | null;
   patientName: string;
   patientPhone: string;
   doctorName: string;
   notes: string;
   status: "pending" | "dispensed" | "cancelled";
+  refillsAllowed: number;
+  fillsUsed: number;
+  refillsRemaining: number;
   createdByName: string;
   dispensedByName: string | null;
   dispensedAt: string | null;
   createdAt: string;
   items: PrescriptionItem[];
+  fills: PrescriptionFill[];
 };
 
 export type PurchaseItem = {
@@ -111,7 +127,7 @@ export type PurchaseItem = {
 export type PurchaseOrder = {
   id: number;
   supplierName: string;
-  status: "ordered" | "received" | "cancelled";
+  status: "draft" | "ordered" | "received" | "cancelled";
   notes: string;
   orderedByName: string;
   receivedByName: string | null;

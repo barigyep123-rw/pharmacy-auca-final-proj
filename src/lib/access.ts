@@ -12,7 +12,11 @@ export type Area =
   | "settings"
   | "deleteDrug"
   | "finance"
-  | "reports";
+  | "reports"
+  | "patients"
+  | "suppliers"
+  | "audit"
+  | "drafts";
 
 const matrix: Record<Area, readonly Role[]> = {
   dashboard: ["admin", "pharmacist", "stock_keeper", "cashier"],
@@ -24,6 +28,10 @@ const matrix: Record<Area, readonly Role[]> = {
   deleteDrug: ["admin", "stock_keeper"],
   finance: ["admin", "pharmacist", "cashier"],
   reports: ["admin", "pharmacist", "cashier"],
+  patients: ["admin", "pharmacist", "cashier"],
+  suppliers: ["admin", "stock_keeper", "pharmacist"],
+  audit: ["admin"],
+  drafts: ["admin", "pharmacist", "stock_keeper"],
 };
 
 export function can(role: Role, area: Area) {

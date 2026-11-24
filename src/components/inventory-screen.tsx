@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { compressPhoto } from "@/lib/compress-photo";
 import { categorySuggestions, drugForms, suggestedOrderQty, wholeNumber } from "@/lib/catalog";
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
+import { describeStock } from "@/lib/units";
 import type { Drug, Movement, PurchaseOrder } from "@/lib/types";
 import { useStaff } from "./session";
 import { mergeSupplierNames, SupplierField } from "./supplier-field";
@@ -31,6 +32,9 @@ type DrugDraft = {
   unitPrice: string;
   openingQuantity: string;
   reorderLevel: string;
+  baseUnit: string;
+  packUnit: string;
+  unitsPerPack: string;
   expiryDate: string;
   batchNumber: string;
   supplier: string;
@@ -71,6 +75,9 @@ function emptyDrug(reorderLevel = "10"): DrugDraft {
     unitPrice: "",
     openingQuantity: "0",
     reorderLevel,
+    baseUnit: "tablet",
+    packUnit: "box",
+    unitsPerPack: "10",
     expiryDate: "",
     batchNumber: "",
     supplier: "",
@@ -90,6 +97,9 @@ function draftFromDrug(drug: Drug): DrugDraft {
     unitPrice: String(drug.unitPrice),
     openingQuantity: String(drug.quantity),
     reorderLevel: String(drug.reorderLevel),
+    baseUnit: drug.baseUnit,
+    packUnit: drug.packUnit,
+    unitsPerPack: String(drug.unitsPerPack),
     expiryDate: drug.expiryDate,
     batchNumber: drug.batchNumber,
     supplier: drug.supplier,
@@ -209,7 +219,7 @@ export function InventoryScreen() {
     setOrdering([
       blankOrderLine({
         drugId: String(drug.id),
-        quantity: String(suggestedOrderQty(drug.quantity, drug.reorderLevel)),
+        quantity: String(Math.ceil(suggestedOrderQty(drug.quantity, drug.reorderLevel) / Math.max(1, drug.unitsPerPack))),
       }),
     ]);
     setTab("orders");
@@ -327,6 +337,12 @@ export function InventoryScreen() {
             setPending(false);
             return;
           }
+          const unitsPerPack = wholeNumber(draft.unitsPerPack);
+          if (!unitsPerPack || unitsPerPack < 1) {
+            setFormError("Pack size has to be a whole number of base units.");
+            setPending(false);
+            return;
+          }
           const body: Record<string, unknown> = {
             name: draft.name,
             genericName: draft.genericName,
@@ -339,6 +355,9 @@ export function InventoryScreen() {
             expiryDate: draft.expiryDate,
             batchNumber: draft.batchNumber,
             supplier: draft.supplier,
+            baseUnit: draft.baseUnit,
+            packUnit: draft.packUnit,
+            unitsPerPack,
           };
           if (draft.photoData) body.photo = draft.photoData;
           else if (editing && draft.clearPhoto) body.photo = null;
@@ -391,7 +410,7 @@ export function InventoryScreen() {
             }
             items.push({
               drugId,
-              quantity,
+              packs: quantity,
               unitCost,
               expiryDate: line.expiryDate,
               batchNumber: line.batchNumber,
@@ -533,7 +552,7 @@ function Shelf({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="w-10 tabular-nums">{drug.quantity}</span>
+                        <span className="tabular-nums">{describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}</span>
                         <span className="h-1.5 w-16 overflow-hidden rounded-full bg-line">
                           <span
                             className={`block h-full ${drug.low ? "bg-amber" : "bg-pine"}`}
@@ -542,7 +561,9 @@ function Shelf({
                         </span>
                         {drug.low ? <Badge tone="amber">Low</Badge> : null}
                       </div>
-                      <p className="mt-1 text-xs text-muted">Reorder at {drug.reorderLevel}</p>
+                      <p className="mt-1 text-xs text-muted">
+                        {drug.allocated} allocated · reorder at {drug.reorderLevel} {drug.baseUnit}s
+                      </p>
                     </td>
                     <td className="px-4 py-3">
                       <p>{formatDay(drug.expiryDate)}</p>
@@ -784,6 +805,18 @@ function DrugDialog({
             </select>
           </label>
           <label className="space-y-1.5">
+            <span className="text-sm font-medium">Base unit</span>
+            <Input value={draft.baseUnit} onChange={(event) => set("baseUnit", event.target.value)} required />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Pack</span>
+            <Input value={draft.packUnit} onChange={(event) => set("packUnit", event.target.value)} required />
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-sm font-medium">Base units per pack</span>
+            <Input inputMode="numeric" value={draft.unitsPerPack} onChange={(event) => set("unitsPerPack", event.target.value)} />
+          </label>
+          <label className="space-y-1.5">
             <span className="text-sm font-medium">Strength</span>
             <Input value={draft.strength} onChange={(event) => set("strength", event.target.value)} />
           </label>
@@ -802,7 +835,9 @@ function DrugDialog({
           {drug ? (
             <div className="space-y-1.5">
               <span className="text-sm font-medium">On hand</span>
-              <p className="flex h-10 items-center text-sm tabular-nums">{drug.quantity}</p>
+              <p className="flex h-10 items-center text-sm tabular-nums">
+                {describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}
+              </p>
             </div>
           ) : (
             <label className="space-y-1.5">
@@ -811,7 +846,7 @@ function DrugDialog({
             </label>
           )}
           <label className="space-y-1.5">
-            <span className="text-sm font-medium">Reorder at</span>
+            <span className="text-sm font-medium">Reorder at (base units)</span>
             <Input inputMode="numeric" value={draft.reorderLevel} onChange={(event) => set("reorderLevel", event.target.value)} />
           </label>
           <label className="space-y-1.5">
@@ -1044,14 +1079,26 @@ function OrderDialog({
                     onLines(lines.map((item) => (item.key === line.key ? { ...item, drugId } : item)))
                   }
                 />
-                <Input
-                  aria-label={`Order quantity ${index + 1}`}
-                  inputMode="numeric"
-                  value={line.quantity}
-                  onChange={(event) =>
-                    onLines(lines.map((item) => (item.key === line.key ? { ...item, quantity: event.target.value } : item)))
-                  }
-                />
+                <div>
+                  <Input
+                    aria-label={`Order packs ${index + 1}`}
+                    inputMode="numeric"
+                    value={line.quantity}
+                    onChange={(event) =>
+                      onLines(lines.map((item) => (item.key === line.key ? { ...item, quantity: event.target.value } : item)))
+                    }
+                  />
+                  {(() => {
+                    const chosen = drugs.find((drug) => String(drug.id) === line.drugId);
+                    const packs = wholeNumber(line.quantity);
+                    if (!chosen || !packs) return <p className="mt-1 text-xs text-muted">Packs. Cost is per base unit.</p>;
+                    return (
+                      <p className="mt-1 text-xs text-muted">
+                        {packs} {chosen.packUnit} = {packs * chosen.unitsPerPack} {chosen.baseUnit}s
+                      </p>
+                    );
+                  })()}
+                </div>
                 <Input
                   aria-label={`Unit cost ${index + 1}`}
                   inputMode="numeric"

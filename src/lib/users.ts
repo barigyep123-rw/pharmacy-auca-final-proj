@@ -1,4 +1,5 @@
 import { assertAccess } from "./access";
+import { writeAudit } from "./audit";
 import { sql } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import { hashPassword } from "./password";
@@ -32,6 +33,12 @@ export async function createUser(
       [input.name, input.email.toLowerCase(), passwordHash, input.role],
     );
     if (!row) throw new ApiError(500, "The account was not created.");
+    await writeAudit(sql, actor, {
+      action: "create",
+      entity: "staff",
+      entityId: row.id,
+      summary: `Added ${row.name} as ${row.role}.`,
+    });
     return account(row);
   } catch (error) {
     if (isUniqueViolation(error)) throw new ApiError(409, "That email or username is already in use.");
@@ -59,6 +66,12 @@ export async function setUserActive(actor: Staff, id: number, active: boolean): 
     [active, id],
   );
   if (!active) await sql(`delete from sessions where user_id = $1`, [id]);
+  await writeAudit(sql, actor, {
+    action: "update",
+    entity: "staff",
+    entityId: id,
+    summary: `${active ? "Turned on" : "Turned off"} ${row.name}.`,
+  });
   return account(row);
 }
 
@@ -74,6 +87,7 @@ export async function removeUser(actor: Staff, id: number) {
     `select (
       (select count(*) from sales where sold_by = $1) +
       (select count(*) from prescriptions where created_by = $1 or dispensed_by = $1) +
+      (select count(*) from prescription_fills where dispensed_by = $1) +
       (select count(*) from purchase_orders where ordered_by = $1 or received_by = $1)
     )::int as n`,
     [id],
@@ -81,5 +95,12 @@ export async function removeUser(actor: Staff, id: number) {
   if ((refs?.n ?? 0) > 0) {
     throw new ApiError(409, "This person is on the sales or order record. Turn the account off instead.");
   }
+  const [named] = await sql<{ name: string }>(`select name from users where id = $1`, [id]);
   await sql(`delete from users where id = $1`, [id]);
+  await writeAudit(sql, actor, {
+    action: "delete",
+    entity: "staff",
+    entityId: id,
+    summary: `Removed ${named ? named.name : "a staff account"}.`,
+  });
 }

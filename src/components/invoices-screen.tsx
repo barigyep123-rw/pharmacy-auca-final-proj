@@ -119,6 +119,7 @@ export function InvoicesScreen({ today }: { today: string }) {
                     <td className="px-4 py-3 font-medium">{invoice.invoiceNumber}</td>
                     <td className="px-4 py-3">
                       {invoice.supplierName}
+                      {invoice.terms ? <p className="text-xs text-muted">{invoice.terms}</p> : null}
                       {invoice.notes ? <p className="text-xs text-muted">{invoice.notes}</p> : null}
                     </td>
                     <td className="px-4 py-3">{formatDay(invoice.issuedOn)}</td>

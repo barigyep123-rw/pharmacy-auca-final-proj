@@ -1,7 +1,11 @@
 import { assertAccess, can } from "./access";
+import { writeAudit } from "./audit";
 import { postSettledSale } from "./finance";
+import { ensurePatient } from "./patients";
 import { decodePhoto, photoBytes } from "./photo";
 import { stampSale } from "./settings";
+import { ensureSupplier } from "./suppliers";
+import { baseCount } from "./units";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
@@ -12,6 +16,7 @@ import type {
   Movement,
   PaymentReceipt,
   Prescription,
+  PrescriptionFill,
   PrescriptionItem,
   PurchaseItem,
   PurchaseOrder,
@@ -35,7 +40,11 @@ type DrugRow = {
   expiry_date: string;
   batch_number: string;
   supplier: string;
+  base_unit: string;
+  pack_unit: string;
+  units_per_pack: number;
   on_order: number | null;
+  allocated: number | null;
   has_photo?: boolean;
 };
 
@@ -43,8 +52,10 @@ const drugSelect = `
   select
     d.id, d.name, d.generic_name, d.category, d.form, d.strength, d.sku,
     d.unit_price, d.quantity, d.reorder_level, d.expiry_date, d.batch_number, d.supplier,
+    d.base_unit, d.pack_unit, d.units_per_pack,
     (d.photo is not null) as has_photo,
-    coalesce(o.on_order, 0)::int as on_order
+    coalesce(o.on_order, 0)::int as on_order,
+    coalesce(a.allocated, 0)::int as allocated
   from drugs d
   left join (
     select i.drug_id, sum(i.quantity)::int as on_order
@@ -53,6 +64,13 @@ const drugSelect = `
     where p.status = 'ordered'
     group by i.drug_id
   ) o on o.drug_id = d.id
+  left join (
+    select i.drug_id, sum(i.quantity)::int as allocated
+    from prescription_items i
+    join prescriptions p on p.id = i.prescription_id
+    where p.status = 'pending'
+    group by i.drug_id
+  ) a on a.drug_id = d.id
 `;
 
 function num(value: unknown) {
@@ -82,6 +100,10 @@ function toDrug(row: DrugRow, today = kigaliToday()): Drug {
     unitPrice: num(row.unit_price),
     quantity,
     reorderLevel,
+    baseUnit: text(row.base_unit) || "tablet",
+    packUnit: text(row.pack_unit) || "box",
+    unitsPerPack: Math.max(1, num(row.units_per_pack)),
+    allocated: num(row.allocated),
     expiryDate,
     batchNumber: text(row.batch_number),
     supplier: text(row.supplier),
@@ -102,7 +124,8 @@ function assertUniqueDrugs(ids: number[]) {
 async function lockDrug(query: QueryFn, id: number) {
   const [row] = await query<DrugRow>(
     `select id, name, generic_name, category, form, strength, sku, unit_price, quantity,
-            reorder_level, expiry_date, batch_number, supplier, 0 as on_order
+            reorder_level, expiry_date, batch_number, supplier,
+            base_unit, pack_unit, units_per_pack, 0 as on_order, 0 as allocated
      from drugs where id = $1 for update`,
     [id],
   );
@@ -203,8 +226,9 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
     const [row] = await sql<{ id: number }>(
       `insert into drugs (
         name, generic_name, category, form, strength, sku, unit_price, quantity,
-        reorder_level, expiry_date, batch_number, supplier, photo, photo_type
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        reorder_level, expiry_date, batch_number, supplier, photo, photo_type,
+        base_unit, pack_unit, units_per_pack
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       returning id`,
       [
         input.name,
@@ -221,9 +245,19 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
         input.supplier,
         photo.bytes,
         photo.type,
+        input.baseUnit || "tablet",
+        input.packUnit || "box",
+        input.unitsPerPack && input.unitsPerPack >= 1 ? input.unitsPerPack : 1,
       ],
     );
-    return (await getDrug(row.id)).drug;
+    const drug = (await getDrug(row.id)).drug;
+    await writeAudit(sql, user, {
+      action: "create",
+      entity: "drug",
+      entityId: drug.id,
+      summary: `Added ${drug.name} ${drug.strength} (${drug.sku}) to the catalog.`,
+    });
+    return drug;
   } catch (error) {
     if (isUniqueViolation(error)) throw new ApiError(409, "That SKU is already in the catalog.");
     throw error;
@@ -237,8 +271,12 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
       `update drugs set
         name = $1, generic_name = $2, category = $3, form = $4, strength = $5, sku = $6,
         unit_price = $7, reorder_level = $8, expiry_date = $9, batch_number = $10,
-        supplier = $11, updated_at = now()
-       where id = $12
+        supplier = $11,
+        base_unit = coalesce($12, base_unit),
+        pack_unit = coalesce($13, pack_unit),
+        units_per_pack = coalesce($14, units_per_pack),
+        updated_at = now()
+       where id = $15
        returning id`,
       [
         input.name,
@@ -252,6 +290,9 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
         input.expiryDate,
         input.batchNumber,
         input.supplier,
+        input.baseUnit || null,
+        input.packUnit || null,
+        input.unitsPerPack && input.unitsPerPack >= 1 ? input.unitsPerPack : null,
         id,
       ],
     );
@@ -260,7 +301,14 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
       const photo = storedPhoto(input.photo);
       await sql(`update drugs set photo = $1, photo_type = $2 where id = $3`, [photo.bytes, photo.type, id]);
     }
-    return (await getDrug(id)).drug;
+    const drug = (await getDrug(id)).drug;
+    await writeAudit(sql, user, {
+      action: "update",
+      entity: "drug",
+      entityId: id,
+      summary: `Updated ${drug.name} ${drug.strength} (${drug.sku}).`,
+    });
+    return drug;
   } catch (error) {
     if (isUniqueViolation(error)) throw new ApiError(409, "That SKU is already in the catalog.");
     throw error;
@@ -280,8 +328,15 @@ export async function deleteDrug(user: Staff, id: number) {
   if (num(refs?.n) > 0) {
     throw new ApiError(409, "This drug has sales, prescriptions, or supplier orders, so it stays on the record.");
   }
+  const [named] = await sql<{ name: string; sku: string }>(`select name, sku from drugs where id = $1`, [id]);
   const [row] = await sql<{ id: number }>(`delete from drugs where id = $1 returning id`, [id]);
   if (!row) throw new ApiError(404, "That drug is no longer in the catalog.");
+  await writeAudit(sql, user, {
+    action: "delete",
+    entity: "drug",
+    entityId: id,
+    summary: `Removed ${named ? `${text(named.name)} (${text(named.sku)})` : "a drug"} from the catalog.`,
+  });
 }
 
 export async function listSales(): Promise<Sale[]> {
@@ -319,32 +374,43 @@ export async function recordSale(user: Staff, input: SaleInput) {
   assertAccess(user.role, "sales");
   return withTransaction(async (query) => {
     const drug = await lockDrug(query, input.drugId);
-    assertSellable(drug, input.quantity);
+    const soldAs = input.soldAs ?? "base";
+    const baseQty = baseCount(input.quantity, soldAs, num(drug.units_per_pack) || 1);
+    assertSellable(drug, baseQty);
     await query(`update drugs set quantity = quantity - $1, updated_at = now() where id = $2`, [
-      input.quantity,
+      baseQty,
       input.drugId,
     ]);
     const priced = await stampSale(query, {
       unitPrice: num(drug.unit_price),
-      quantity: input.quantity,
+      quantity: baseQty,
       paymentMethodId: input.paymentMethodId,
     });
+    const patientMatches = input.customerName.trim()
+      ? await query<{ id: number }>(
+          `select id from patients where lower(name) = lower($1) order by id limit 2`,
+          [input.customerName.trim()],
+        )
+      : [];
+    const patientId = patientMatches.length === 1 ? num(patientMatches[0].id) : null;
     const [sale] = await query<{ id: number; created_at: unknown }>(
       `insert into sales (
-         drug_id, quantity, unit_price, total, customer_name, sold_by,
-         payment_method_id, currency_id, receipt_number
-       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         drug_id, quantity, unit_price, total, customer_name, sold_by, patient_id,
+         payment_method_id, currency_id, receipt_number, sold_as
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        returning id, created_at`,
       [
         input.drugId,
-        input.quantity,
+        baseQty,
         num(drug.unit_price),
         priced.total,
         input.customerName,
         user.id,
+        patientId,
         priced.paymentMethodId,
         priced.currencyId,
         priced.receiptNumber,
+        soldAs,
       ],
     );
     await postSettledSale(query, {
@@ -353,6 +419,12 @@ export async function recordSale(user: Staff, input: SaleInput) {
       paymentMethodId: priced.paymentMethodId,
       settlesImmediately: priced.settlesImmediately,
       userId: user.id,
+    });
+    await writeAudit(query, user, {
+      action: "create",
+      entity: "sale",
+      entityId: num(sale.id),
+      summary: `Sold ${baseQty} ${text(drug.base_unit) || "base units"} of ${text(drug.name)} on ${priced.receiptNumber}.`,
     });
     const receipt: PaymentReceipt = {
       numbers: [priced.receiptNumber],
@@ -365,7 +437,7 @@ export async function recordSale(user: Staff, input: SaleInput) {
         {
           name: text(drug.name),
           strength: text(drug.strength),
-          quantity: input.quantity,
+          quantity: baseQty,
           unitPrice: num(drug.unit_price),
           total: priced.total,
         },
@@ -374,7 +446,7 @@ export async function recordSale(user: Staff, input: SaleInput) {
     return {
       id: num(sale.id),
       total: priced.total,
-      quantityLeft: num(drug.quantity) - input.quantity,
+      quantityLeft: num(drug.quantity) - baseQty,
       receipt,
     };
   });
@@ -412,22 +484,59 @@ async function prescriptionItems(ids: number[]): Promise<Map<number, Prescriptio
   return grouped;
 }
 
+function refillsRemaining(allowed: number, used: number) {
+  if (used === 0) return allowed;
+  return Math.max(0, allowed - (used - 1));
+}
+
+async function prescriptionFills(ids: number[]): Promise<Map<number, PrescriptionFill[]>> {
+  const grouped = new Map<number, PrescriptionFill[]>();
+  if (ids.length === 0) return grouped;
+  const rows = await sql(
+    `select f.id, f.prescription_id, f.fill_number, f.created_at, u.name as dispensed_by_name
+     from prescription_fills f
+     join users u on u.id = f.dispensed_by
+     where f.prescription_id = any($1::int[])
+     order by f.fill_number`,
+    [ids],
+  );
+  for (const row of rows) {
+    const prescriptionId = num(row.prescription_id);
+    const list = grouped.get(prescriptionId) ?? [];
+    list.push({
+      id: num(row.id),
+      fillNumber: num(row.fill_number),
+      dispensedByName: text(row.dispensed_by_name),
+      createdAt: text(row.created_at),
+    });
+    grouped.set(prescriptionId, list);
+  }
+  return grouped;
+}
+
 function mapPrescription(
   row: Record<string, unknown>,
   items: PrescriptionItem[],
+  fills: PrescriptionFill[],
 ): Prescription {
+  const refillsAllowed = num(row.refills_allowed);
   return {
     id: num(row.id),
+    patientId: row.patient_id == null ? null : num(row.patient_id),
     patientName: text(row.patient_name),
     patientPhone: text(row.patient_phone),
     doctorName: text(row.doctor_name),
     notes: text(row.notes),
     status: text(row.status) as Prescription["status"],
+    refillsAllowed,
+    fillsUsed: fills.length,
+    refillsRemaining: refillsRemaining(refillsAllowed, fills.length),
     createdByName: text(row.created_by_name),
     dispensedByName: row.dispensed_by_name == null ? null : text(row.dispensed_by_name),
     dispensedAt: row.dispensed_at == null ? null : text(row.dispensed_at),
     createdAt: text(row.created_at),
     items,
+    fills,
   };
 }
 
@@ -440,20 +549,33 @@ export async function listPrescriptions(): Promise<Prescription[]> {
      order by p.created_at desc
      limit 100`,
   );
-  const items = await prescriptionItems(rows.map((row) => num(row.id)));
-  return rows.map((row) => mapPrescription(row, items.get(num(row.id)) ?? []));
+  const ids = rows.map((row) => num(row.id));
+  const items = await prescriptionItems(ids);
+  const fills = await prescriptionFills(ids);
+  return rows.map((row) => mapPrescription(row, items.get(num(row.id)) ?? [], fills.get(num(row.id)) ?? []));
 }
 
 export async function createPrescription(user: Staff, input: PrescriptionInput): Promise<Prescription> {
   assertAccess(user.role, "prescriptions");
   assertUniqueDrugs(input.items.map((item) => item.drugId));
   const id = await withTransaction(async (query) => {
+    const patientId = await ensurePatient(query, user, {
+      name: input.patientName,
+      phone: input.patientPhone,
+    });
     const [header] = await query<{ id: number }>(
-      `insert into prescriptions (patient_name, patient_phone, doctor_name, notes, status, created_by)
-       values ($1, $2, $3, $4, 'pending', $5)
+      `insert into prescriptions (
+         patient_id, patient_name, patient_phone, doctor_name, notes, status, refills_allowed, created_by
+       ) values ($1, $2, $3, $4, $5, 'pending', $6, $7)
        returning id`,
-      [input.patientName, input.patientPhone, input.doctorName, input.notes, user.id],
+      [patientId, input.patientName, input.patientPhone, input.doctorName, input.notes, input.refillsAllowed ?? 0, user.id],
     );
+    await writeAudit(query, user, {
+      action: "create",
+      entity: "prescription",
+      entityId: num(header.id),
+      summary: `Filed a prescription for ${input.patientName} with ${input.refillsAllowed ?? 0} refill${(input.refillsAllowed ?? 0) === 1 ? "" : "s"}.`,
+    });
     for (const item of input.items) {
       const [drug] = await query<{ unit_price: number }>(
         `select unit_price from drugs where id = $1`,
@@ -472,85 +594,145 @@ export async function createPrescription(user: Staff, input: PrescriptionInput):
   return created;
 }
 
+async function writeFill(
+  query: QueryFn,
+  user: Staff,
+  prescription: { id: number; patient_name: string; patient_id: number | null },
+  paymentMethodId: number | undefined,
+  fillNumber: number,
+) {
+  const items = await query<{ drug_id: number; quantity: number; unit_price: number }>(
+    `select drug_id, quantity, unit_price from prescription_items where prescription_id = $1 order by drug_id`,
+    [prescription.id],
+  );
+  if (items.length === 0) throw new ApiError(409, "This prescription has no drugs.");
+  const [fill] = await query<{ id: number }>(
+    `insert into prescription_fills (prescription_id, fill_number, dispensed_by)
+     values ($1, $2, $3)
+     returning id`,
+    [prescription.id, fillNumber, user.id],
+  );
+  const receipt: PaymentReceipt = {
+    numbers: [],
+    issuedAt: "",
+    customerName: text(prescription.patient_name),
+    sellerName: user.name,
+    paymentMethodName: "",
+    settlesImmediately: true,
+    lines: [],
+  };
+  for (const item of items) {
+    const drug = await lockDrug(query, num(item.drug_id));
+    assertSellable(drug, num(item.quantity));
+    await query(`update drugs set quantity = quantity - $1, updated_at = now() where id = $2`, [
+      num(item.quantity),
+      num(item.drug_id),
+    ]);
+    const priced = await stampSale(query, {
+      unitPrice: num(item.unit_price),
+      quantity: num(item.quantity),
+      paymentMethodId,
+    });
+    const [sale] = await query<{ id: number; created_at: unknown }>(
+      `insert into sales (
+         drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id,
+         fill_id, patient_id, payment_method_id, currency_id, receipt_number
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       returning id, created_at`,
+      [
+        num(item.drug_id),
+        num(item.quantity),
+        num(item.unit_price),
+        priced.total,
+        text(prescription.patient_name),
+        user.id,
+        prescription.id,
+        num(fill.id),
+        prescription.patient_id,
+        priced.paymentMethodId,
+        priced.currencyId,
+        priced.receiptNumber,
+      ],
+    );
+    await postSettledSale(query, {
+      saleId: num(sale.id),
+      total: priced.total,
+      paymentMethodId: priced.paymentMethodId,
+      settlesImmediately: priced.settlesImmediately,
+      userId: user.id,
+    });
+    if (!receipt.issuedAt) receipt.issuedAt = text(sale.created_at);
+    receipt.numbers.push(priced.receiptNumber);
+    receipt.paymentMethodName = priced.paymentMethodName;
+    receipt.settlesImmediately = priced.settlesImmediately;
+    receipt.lines.push({
+      name: text(drug.name),
+      strength: text(drug.strength),
+      quantity: num(item.quantity),
+      unitPrice: num(item.unit_price),
+      total: priced.total,
+    });
+  }
+  return receipt;
+}
+
 export async function dispensePrescription(user: Staff, id: number, paymentMethodId?: number): Promise<PaymentReceipt> {
   assertAccess(user.role, "prescriptions");
   return withTransaction(async (query) => {
-    const [prescription] = await query<{ id: number; status: string; patient_name: string }>(
-      `select id, status, patient_name from prescriptions where id = $1 for update`,
+    const [prescription] = await query<{ id: number; status: string; patient_name: string; patient_id: number | null }>(
+      `select id, status, patient_name, patient_id from prescriptions where id = $1 for update`,
       [id],
     );
     if (!prescription) throw new ApiError(404, "Prescription not found.");
     if (prescription.status !== "pending") {
       throw new ApiError(409, "Only a pending prescription can be dispensed.");
     }
-    const items = await query<{ drug_id: number; quantity: number; unit_price: number }>(
-      `select drug_id, quantity, unit_price from prescription_items where prescription_id = $1 order by drug_id`,
-      [id],
-    );
-    if (items.length === 0) throw new ApiError(409, "This prescription has no drugs.");
-    const receipt: PaymentReceipt = {
-      numbers: [],
-      issuedAt: "",
-      customerName: text(prescription.patient_name),
-      sellerName: user.name,
-      paymentMethodName: "",
-      settlesImmediately: true,
-      lines: [],
-    };
-    for (const item of items) {
-      const drug = await lockDrug(query, num(item.drug_id));
-      assertSellable(drug, num(item.quantity));
-      await query(`update drugs set quantity = quantity - $1, updated_at = now() where id = $2`, [
-        num(item.quantity),
-        num(item.drug_id),
-      ]);
-      const priced = await stampSale(query, {
-        unitPrice: num(item.unit_price),
-        quantity: num(item.quantity),
-        paymentMethodId,
-      });
-      const [sale] = await query<{ id: number; created_at: unknown }>(
-        `insert into sales (
-           drug_id, quantity, unit_price, total, customer_name, sold_by, prescription_id,
-           payment_method_id, currency_id, receipt_number
-         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         returning id, created_at`,
-        [
-          num(item.drug_id),
-          num(item.quantity),
-          num(item.unit_price),
-          priced.total,
-          text(prescription.patient_name),
-          user.id,
-          id,
-          priced.paymentMethodId,
-          priced.currencyId,
-          priced.receiptNumber,
-        ],
-      );
-      await postSettledSale(query, {
-        saleId: num(sale.id),
-        total: priced.total,
-        paymentMethodId: priced.paymentMethodId,
-        settlesImmediately: priced.settlesImmediately,
-        userId: user.id,
-      });
-      if (!receipt.issuedAt) receipt.issuedAt = text(sale.created_at);
-      receipt.numbers.push(priced.receiptNumber);
-      receipt.paymentMethodName = priced.paymentMethodName;
-      receipt.settlesImmediately = priced.settlesImmediately;
-      receipt.lines.push({
-        name: text(drug.name),
-        strength: text(drug.strength),
-        quantity: num(item.quantity),
-        unitPrice: num(item.unit_price),
-        total: priced.total,
-      });
-    }
+    const receipt = await writeFill(query, user, prescription, paymentMethodId, 1);
     await query(
       `update prescriptions set status = 'dispensed', dispensed_by = $1, dispensed_at = now() where id = $2`,
       [user.id, id],
     );
+    await writeAudit(query, user, {
+      action: "dispense",
+      entity: "prescription",
+      entityId: id,
+      summary: `Dispensed the first fill for ${text(prescription.patient_name)}.`,
+    });
+    return receipt;
+  });
+}
+
+export async function refillPrescription(user: Staff, id: number, paymentMethodId?: number): Promise<PaymentReceipt> {
+  assertAccess(user.role, "prescriptions");
+  return withTransaction(async (query) => {
+    const [prescription] = await query<{
+      id: number;
+      status: string;
+      patient_name: string;
+      patient_id: number | null;
+      refills_allowed: number;
+    }>(
+      `select id, status, patient_name, patient_id, refills_allowed from prescriptions where id = $1 for update`,
+      [id],
+    );
+    if (!prescription) throw new ApiError(404, "Prescription not found.");
+    if (prescription.status === "pending") throw new ApiError(409, "Dispense this prescription once before a refill.");
+    if (prescription.status !== "dispensed") throw new ApiError(409, "A cancelled prescription cannot be refilled.");
+    const [count] = await query<{ n: number }>(
+      `select count(*)::int as n from prescription_fills where prescription_id = $1`,
+      [id],
+    );
+    const used = num(count?.n);
+    const allowed = num(prescription.refills_allowed);
+    if (used >= 1 + allowed) throw new ApiError(409, "No refills are left on this prescription.");
+    const fillNumber = used + 1;
+    const receipt = await writeFill(query, user, prescription, paymentMethodId, fillNumber);
+    await writeAudit(query, user, {
+      action: "refill",
+      entity: "prescription",
+      entityId: id,
+      summary: `Dispensed refill ${fillNumber - 1} of ${allowed} for ${text(prescription.patient_name)}.`,
+    });
     return receipt;
   });
 }
@@ -568,6 +750,12 @@ export async function cancelPrescription(user: Staff, id: number) {
     if (!existing) throw new ApiError(404, "Prescription not found.");
     throw new ApiError(409, "Only a pending prescription can be cancelled.");
   }
+  await writeAudit(sql, user, {
+    action: "cancel",
+    entity: "prescription",
+    entityId: id,
+    summary: `Cancelled prescription ${id}.`,
+  });
 }
 
 async function orderItems(ids: number[]): Promise<Map<number, PurchaseItem[]>> {
@@ -625,6 +813,7 @@ export async function listPurchaseOrders(): Promise<PurchaseOrder[]> {
      from purchase_orders p
      join users orderer on orderer.id = p.ordered_by
      left join users receiver on receiver.id = p.received_by
+     where p.status <> 'draft'
      order by p.ordered_at desc
      limit 80`,
   );
@@ -640,17 +829,31 @@ export async function createPurchaseOrder(user: Staff, input: PurchaseOrderInput
       const [drug] = await query<{ id: number }>(`select id from drugs where id = $1`, [item.drugId]);
       if (!drug) throw new ApiError(400, "One of the drugs is no longer in the catalog.");
     }
+    const supplier = await ensureSupplier(query, input.supplierName);
     const [order] = await query<{ id: number }>(
-      `insert into purchase_orders (supplier_name, status, notes, ordered_by)
-       values ($1, 'ordered', $2, $3)
+      `insert into purchase_orders (supplier_id, supplier_name, status, notes, ordered_by)
+       values ($1, $2, 'ordered', $3, $4)
        returning id`,
-      [input.supplierName, input.notes, user.id],
+      [supplier.id, supplier.name, input.notes, user.id],
     );
+    await writeAudit(query, user, {
+      action: "create",
+      entity: "order",
+      entityId: num(order.id),
+      summary: `Ordered from ${supplier.name}.`,
+    });
     for (const item of input.items) {
+      const [pack] = await query<{ units_per_pack: number }>(
+        `select units_per_pack from drugs where id = $1`,
+        [item.drugId],
+      );
+      const per = Math.max(1, num(pack?.units_per_pack));
+      const quantity = item.packs != null ? item.packs * per : item.quantity;
+      if (!quantity) throw new ApiError(400, "Enter packs or a base-unit quantity.");
       await query(
-        `insert into purchase_order_items (order_id, drug_id, quantity, unit_cost, expiry_date, batch_number)
-         values ($1, $2, $3, $4, nullif($5, ''), $6)`,
-        [order.id, item.drugId, item.quantity, item.unitCost, item.expiryDate, item.batchNumber],
+        `insert into purchase_order_items (order_id, drug_id, quantity, unit_cost, expiry_date, batch_number, entered_packs)
+         values ($1, $2, $3, $4, nullif($5, ''), $6, $7)`,
+        [order.id, item.drugId, quantity, item.unitCost, item.expiryDate, item.batchNumber, item.packs ?? null],
       );
     }
     return num(order.id);
@@ -667,6 +870,7 @@ export async function receivePurchaseOrder(user: Staff, id: number) {
       [id],
     );
     if (!order) throw new ApiError(404, "Supplier order not found.");
+    if (order.status === "draft") throw new ApiError(409, "Send the draft before receiving it.");
     if (order.status !== "ordered") {
       throw new ApiError(409, "Only an open supplier order can be received.");
     }
@@ -704,6 +908,12 @@ export async function receivePurchaseOrder(user: Staff, id: number) {
       `update purchase_orders set status = 'received', received_by = $1, received_at = now() where id = $2`,
       [user.id, id],
     );
+    await writeAudit(query, user, {
+      action: "receive",
+      entity: "order",
+      entityId: id,
+      summary: `Received the order from ${text(order.supplier_name)}.`,
+    });
   });
 }
 
@@ -740,11 +950,14 @@ export async function createSupplier(user: Staff, name: string): Promise<{ name:
   if (existing) return { name: text(existing.name), created: false };
 
   try {
-    const [row] = await sql<{ name: string }>(
-      `insert into suppliers (name) values ($1) returning name`,
-      [cleaned],
-    );
-    return { name: text(row.name), created: true };
+    const saved = await ensureSupplier(sql, cleaned);
+    await writeAudit(sql, user, {
+      action: "create",
+      entity: "supplier",
+      entityId: saved.id,
+      summary: `Added supplier ${saved.name}.`,
+    });
+    return { name: saved.name, created: true };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     const [again] = await sql<{ name: string }>(
@@ -760,15 +973,21 @@ export async function cancelPurchaseOrder(user: Staff, id: number) {
   assertAccess(user.role, "orders");
   const [row] = await sql<{ id: number }>(
     `update purchase_orders set status = 'cancelled'
-     where id = $1 and status = 'ordered'
+     where id = $1 and status in ('ordered', 'draft')
      returning id`,
     [id],
   );
   if (!row) {
     const [existing] = await sql<{ id: number }>(`select id from purchase_orders where id = $1`, [id]);
     if (!existing) throw new ApiError(404, "Supplier order not found.");
-    throw new ApiError(409, "Only an open supplier order can be cancelled.");
+    throw new ApiError(409, "Only an open order or a draft can be cancelled.");
   }
+  await writeAudit(sql, user, {
+    action: "cancel",
+    entity: "order",
+    entityId: id,
+    summary: `Cancelled supplier order ${id}.`,
+  });
 }
 
 export async function getDashboard(user: Staff): Promise<DashboardData> {

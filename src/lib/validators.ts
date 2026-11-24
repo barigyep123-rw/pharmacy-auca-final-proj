@@ -31,6 +31,9 @@ export const drugInputSchema = z.object({
   expiryDate: dateText,
   batchNumber: optionalText(40),
   supplier: optionalText(80),
+  baseUnit: z.string().trim().min(2).max(24).optional().default("tablet"),
+  packUnit: z.string().trim().min(2).max(24).optional().default("box"),
+  unitsPerPack: z.number().int().min(1).max(10_000).optional().default(1),
   photo: z.string().trim().max(900_000, "That photo is too large.").optional(),
 });
 
@@ -41,6 +44,7 @@ export const drugUpdateSchema = drugInputSchema.omit({ openingQuantity: true, ph
 export const saleSchema = z.object({
   drugId: z.number().int().positive(),
   quantity: z.number().int().min(1, "Quantity must be at least 1.").max(5_000),
+  soldAs: z.enum(["base", "pack"]).optional().default("base"),
   customerName: optionalText(80),
   paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
 });
@@ -50,6 +54,7 @@ export const dispenseSchema = z.object({
 });
 
 export const invoiceSchema = z.object({
+  supplierId: z.number().int().positive().nullable().optional(),
   supplierName: z.string().trim().min(2, "Enter the supplier.").max(80),
   invoiceNumber: z.string().trim().min(1, "Enter the invoice number.").max(40),
   amount: z.number().int().min(0, "Amount cannot be negative.").max(50_000_000),
@@ -75,15 +80,41 @@ export const prescriptionSchema = z.object({
   patientPhone: optionalText(24),
   doctorName: optionalText(80),
   notes: optionalText(500),
+  refillsAllowed: z.number().int().min(0, "Refills cannot be negative.").max(12, "Twelve refills is the limit.").optional().default(0),
   items: z.array(prescriptionLine).min(1, "Add at least one drug.").max(12),
 });
 
-const orderLine = z.object({
-  drugId: z.number().int().positive(),
-  quantity: z.number().int().min(1, "Quantity must be at least 1.").max(10_000),
-  unitCost: z.number().int().min(0, "Unit cost cannot be negative.").max(5_000_000),
-  expiryDate: z.union([z.literal(""), dateText]).optional().default(""),
-  batchNumber: optionalText(40),
+const orderLine = z
+  .object({
+    drugId: z.number().int().positive(),
+    quantity: z.number().int().min(1, "Quantity must be at least 1.").max(100_000).optional(),
+    packs: z.number().int().min(1, "Enter at least one pack.").max(10_000).optional(),
+    unitCost: z.number().int().min(0, "Unit cost cannot be negative.").max(5_000_000),
+    expiryDate: z.union([z.literal(""), dateText]).optional().default(""),
+    batchNumber: optionalText(40),
+  })
+  .superRefine((line, ctx) => {
+    if (line.quantity == null && line.packs == null) {
+      ctx.addIssue({ code: "custom", message: "Enter packs or a base-unit quantity.", path: ["quantity"] });
+    }
+  });
+
+export const draftUpdateSchema = z.object({
+  supplierName: z.string().trim().min(2, "Enter the supplier.").max(80),
+  lines: z
+    .array(
+      z.object({
+        drugId: z.number().int().positive(),
+        packs: z.number().int().min(1).max(10_000),
+      }),
+    )
+    .min(1, "Keep at least one line, or cancel the draft.")
+    .max(40),
+});
+
+export const mergeDraftsSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(2, "Choose at least two drafts."),
+  supplierName: z.string().trim().min(2, "Enter the supplier.").max(80),
 });
 
 export const purchaseOrderSchema = z.object({
@@ -155,13 +186,30 @@ export const businessSchema = z.object({
   defaultReorderLevel: z.number().int().min(0).max(100_000),
 });
 
+const supplierName = z
+  .string()
+  .trim()
+  .min(2, "Enter the supplier.")
+  .max(80, "That supplier name is too long.")
+  .transform((value) => value.replace(/\s+/g, " "));
+
 export const supplierSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, "Enter the supplier.")
-    .max(80, "That supplier name is too long.")
-    .transform((value) => value.replace(/\s+/g, " ")),
+  name: supplierName,
+});
+
+export const supplierProfileSchema = z.object({
+  name: supplierName,
+  contactName: optionalText(80),
+  phone: optionalText(24),
+  email: optionalText(80),
+  address: optionalText(120),
+  terms: optionalText(160),
+  notes: optionalText(500),
+  active: z.boolean(),
+});
+
+export const patientNotesSchema = z.object({
+  notes: optionalText(500),
 });
 
 const email = z

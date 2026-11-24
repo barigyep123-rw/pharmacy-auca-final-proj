@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
 import { formatRwf, formatWhen } from "@/lib/format";
-import { kigaliToday } from "@/lib/time";
+import { baseCount, describeStock, unitLabel } from "@/lib/units";
 import type { Drug, PaymentReceipt, Sale } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
 import { Button } from "./ui/button";
@@ -40,13 +40,14 @@ function party(sale: Sale) {
   return sale.customerName || "Walk-in";
 }
 
-export function SalesScreen() {
+export function SalesScreen({ today }: { today: string }) {
   const [drugs, setDrugs] = useState<Drug[] | null>(null);
   const [sales, setSales] = useState<Sale[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [drugId, setDrugId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState("1");
+  const [soldAs, setSoldAs] = useState<"base" | "pack">("base");
   const [customerName, setCustomerName] = useState("");
   const [methods, setMethods] = useState<Tender[]>([]);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
@@ -88,7 +89,6 @@ export function SalesScreen() {
     };
   }, []);
 
-  const today = kigaliToday();
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (drugs ?? []).filter((drug) => {
@@ -98,7 +98,8 @@ export function SalesScreen() {
   }, [drugs, query]);
   const selected = drugs?.find((drug) => drug.id === drugId) ?? null;
   const qty = wholeNumber(quantity);
-  const lineTotal = selected && qty ? selected.unitPrice * qty : 0;
+  const baseQty = selected && qty ? baseCount(qty, soldAs, selected.unitsPerPack) : 0;
+  const lineTotal = selected && qty ? selected.unitPrice * baseQty : 0;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -119,10 +120,10 @@ export function SalesScreen() {
     try {
       const result = await api<{ sale: { receipt: PaymentReceipt } }>("/api/sales", {
         method: "POST",
-        body: JSON.stringify({ drugId: selected.id, quantity: qty, customerName, paymentMethodId }),
+        body: JSON.stringify({ drugId: selected.id, quantity: qty, soldAs, customerName, paymentMethodId }),
       });
       setReceipt(result.sale.receipt);
-      toast.success(`${qty} × ${selected.name} recorded. Stock updated.`);
+      toast.success(`${baseQty} ${selected.baseUnit}s of ${selected.name} recorded. Stock updated.`);
       setQuantity("1");
       setCustomerName("");
       await load();
@@ -174,7 +175,7 @@ export function SalesScreen() {
                         {drug.name} <span className="text-muted">{drug.strength}</span>
                       </span>
                       <span className="text-xs text-muted">
-                        {drug.expired ? "Expired" : `${drug.quantity} · ${formatRwf(drug.unitPrice)}`}
+                        {drug.expired ? "Expired" : `${describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}`}
                       </span>
                     </button>
                   </li>
@@ -183,10 +184,26 @@ export function SalesScreen() {
             </ul>
             {selected ? (
               <p className="text-sm text-muted">
-                {selected.name}: {selected.quantity} on hand, expires {selected.expiryDate}
+                {selected.name}: {describeStock(selected.quantity, selected.unitsPerPack, selected.baseUnit, selected.packUnit)} on hand, expires {selected.expiryDate}
                 {selected.expiryDate < today ? " (expired)" : ""}.
               </p>
             ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-sm ${soldAs === "base" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                onClick={() => setSoldAs("base")}
+              >
+                {selected?.baseUnit ?? "Base unit"}
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-3 py-1 text-sm ${soldAs === "pack" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                onClick={() => setSoldAs("pack")}
+              >
+                {selected?.packUnit ?? "Pack"}
+              </button>
+            </div>
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Quantity</span>
               <Input
@@ -194,6 +211,12 @@ export function SalesScreen() {
                 value={quantity}
                 onChange={(event) => setQuantity(event.target.value)}
               />
+              {selected && qty ? (
+                <span className="block text-xs text-muted">
+                  Takes {unitLabel(baseQty, selected.baseUnit)} off the shelf
+                  {soldAs === "pack" ? ` (${qty} × ${selected.unitsPerPack})` : ""}. Loose {selected.baseUnit}s stay as they are.
+                </span>
+              ) : null}
             </label>
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Payment</span>

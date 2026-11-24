@@ -1,7 +1,9 @@
 import { assertAccess } from "./access";
+import { writeAudit } from "./audit";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
+import { ensureSupplier } from "./suppliers";
 import type { Staff } from "./types";
 
 function num(value: unknown) {
@@ -124,6 +126,8 @@ export async function ledger() {
 export type SupplierInvoice = {
   id: number;
   supplierName: string;
+  supplierId: number | null;
+  terms: string;
   invoiceNumber: string;
   purchaseOrderId: number | null;
   amount: number;
@@ -135,14 +139,19 @@ export type SupplierInvoice = {
 
 export async function listInvoices(): Promise<SupplierInvoice[]> {
   const rows = await sql(
-    `select id, supplier_name, invoice_number, purchase_order_id, amount, status, issued_on, notes, created_at
-     from supplier_invoices
-     order by issued_on desc, id desc
+    `select i.id, coalesce(s.name, i.supplier_name) as supplier_name, i.supplier_id, i.invoice_number,
+            i.purchase_order_id, i.amount, i.status, i.issued_on, i.notes, i.created_at,
+            coalesce(s.terms, '') as terms
+     from supplier_invoices i
+     left join suppliers s on s.id = i.supplier_id
+     order by i.issued_on desc, i.id desc
      limit 100`,
   );
   return rows.map((row) => ({
     id: num(row.id),
     supplierName: text(row.supplier_name),
+    supplierId: row.supplier_id == null ? null : num(row.supplier_id),
+    terms: text(row.terms),
     invoiceNumber: text(row.invoice_number),
     purchaseOrderId: row.purchase_order_id == null ? null : num(row.purchase_order_id),
     amount: num(row.amount),
@@ -156,6 +165,7 @@ export async function listInvoices(): Promise<SupplierInvoice[]> {
 export async function createInvoice(
   actor: Staff,
   input: {
+    supplierId?: number | null;
     supplierName: string;
     invoiceNumber: string;
     amount: number;
@@ -166,13 +176,23 @@ export async function createInvoice(
 ) {
   assertAccess(actor.role, "finance");
   try {
+    const linked = input.supplierId
+      ? (
+          await sql<{ id: number; name: string }>(`select id, name from suppliers where id = $1`, [input.supplierId])
+        )[0]
+      : null;
+    if (input.supplierId && !linked) throw new ApiError(400, "Choose a supplier from the list.");
+    const supplier = linked
+      ? { id: num(linked.id), name: text(linked.name) }
+      : await ensureSupplier(sql, input.supplierName);
     const [row] = await sql<{ id: number }>(
       `insert into supplier_invoices (
-         supplier_name, invoice_number, purchase_order_id, amount, issued_on, notes, created_by
-       ) values ($1, $2, $3, $4, $5, $6, $7)
+         supplier_id, supplier_name, invoice_number, purchase_order_id, amount, issued_on, notes, created_by
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8)
        returning id`,
       [
-        input.supplierName,
+        supplier.id,
+        supplier.name,
         input.invoiceNumber,
         input.purchaseOrderId ?? null,
         input.amount,
@@ -181,6 +201,12 @@ export async function createInvoice(
         actor.id,
       ],
     );
+    await writeAudit(sql, actor, {
+      action: "create",
+      entity: "invoice",
+      entityId: num(row.id),
+      summary: `Recorded invoice ${input.invoiceNumber} for ${supplier.name}.`,
+    });
     const invoices = await listInvoices();
     const created = invoices.find((item) => item.id === num(row.id));
     if (!created) throw new ApiError(500, "The invoice was saved but could not be read back.");
@@ -206,6 +232,12 @@ export async function payInvoice(actor: Staff, id: number) {
        values ('supplier_invoice', 'out', $1, $2, $3, $4)`,
       [num(invoice.amount), id, `Supplier invoice ${text(invoice.invoice_number)}`, actor.id],
     );
+    await writeAudit(query, actor, {
+      action: "pay",
+      entity: "invoice",
+      entityId: id,
+      summary: `Marked invoice ${text(invoice.invoice_number)} paid.`,
+    });
   });
 }
 
@@ -288,6 +320,12 @@ export async function collectCredit(
        values ('collection', 'in', $1, $2, $3, 'Credit collected', $4)`,
       [input.amount, input.paymentMethodId, input.saleId, actor.id],
     );
+    await writeAudit(query, actor, {
+      action: "collect",
+      entity: "collection",
+      entityId: input.saleId,
+      summary: `Collected ${input.amount} against sale ${input.saleId}.`,
+    });
     return { remaining: remaining - input.amount };
   });
 }

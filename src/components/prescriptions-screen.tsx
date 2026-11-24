@@ -1,11 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
 import { formatRwf, formatWhen } from "@/lib/format";
-import { kigaliToday } from "@/lib/time";
 import type { Drug, PaymentReceipt, Prescription } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
 import { Badge } from "./ui/badge";
@@ -39,7 +39,7 @@ function lineProblem(drug: Drug | undefined, quantity: number, today: string) {
   return null;
 }
 
-export function PrescriptionsScreen() {
+export function PrescriptionsScreen({ today }: { today: string }) {
   const [rows, setRows] = useState<Prescription[] | null>(null);
   const [drugs, setDrugs] = useState<Drug[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -50,13 +50,13 @@ export function PrescriptionsScreen() {
   const [patientPhone, setPatientPhone] = useState("");
   const [doctorName, setDoctorName] = useState("");
   const [notes, setNotes] = useState("");
+  const [refillsAllowed, setRefillsAllowed] = useState("0");
   const [lines, setLines] = useState<Line[]>([{ key: "line-1", drugId: "", quantity: "1", dosage: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [methods, setMethods] = useState<Tender[]>([]);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
-  const today = kigaliToday();
 
   async function load() {
     const [prescriptions, catalog, tenders] = await Promise.all([
@@ -102,6 +102,7 @@ export function PrescriptionsScreen() {
     setPatientPhone("");
     setDoctorName("");
     setNotes("");
+    setRefillsAllowed("0");
     setLines([{ key: "line-1", drugId: "", quantity: "1", dosage: "" }]);
     setFormError(null);
   }
@@ -127,7 +128,14 @@ export function PrescriptionsScreen() {
     try {
       await api("/api/prescriptions", {
         method: "POST",
-        body: JSON.stringify({ patientName, patientPhone, doctorName, notes, items }),
+        body: JSON.stringify({
+          patientName,
+          patientPhone,
+          doctorName,
+          notes,
+          refillsAllowed: wholeNumber(refillsAllowed) ?? 0,
+          items,
+        }),
       });
       toast.success("Prescription filed. Stock is unchanged until you dispense it.");
       setOpen(false);
@@ -158,6 +166,29 @@ export function PrescriptionsScreen() {
       await load();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Could not dispense.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function refill(id: number) {
+    setPending(true);
+    try {
+      if (!paymentMethodId) {
+        toast.error("Choose how the customer is paying.");
+        setPending(false);
+        return;
+      }
+      const result = await api<{ receipt: PaymentReceipt }>(`/api/prescriptions/${id}/refill`, {
+        method: "POST",
+        body: JSON.stringify({ paymentMethodId }),
+      });
+      setActive(null);
+      setReceipt(result.receipt);
+      toast.success("Refill dispensed from the same prescription.");
+      await load();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Could not refill.");
     } finally {
       setPending(false);
     }
@@ -227,6 +258,7 @@ export function PrescriptionsScreen() {
                       <p className="font-medium">{row.patientName}</p>
                       <p className="text-xs text-muted">
                         {row.items.length === 1 ? "1 line" : `${row.items.length} lines`}
+                        {row.refillsAllowed > 0 ? ` · ${row.refillsRemaining} refill${row.refillsRemaining === 1 ? "" : "s"} left` : ""}
                       </p>
                     </td>
                     <td className="px-4 py-3">{row.doctorName || "—"}</td>
@@ -321,6 +353,15 @@ export function PrescriptionsScreen() {
               </Button>
             </div>
             <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Refills allowed</span>
+              <Input
+                inputMode="numeric"
+                value={refillsAllowed}
+                onChange={(event) => setRefillsAllowed(event.target.value)}
+              />
+              <span className="block text-xs text-muted">Extra fills after the first dispense. Zero means this script is used once.</span>
+            </label>
+            <label className="block space-y-1.5">
               <span className="text-sm font-medium">Notes</span>
               <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
             </label>
@@ -346,6 +387,14 @@ export function PrescriptionsScreen() {
                   {active.status}
                 </Badge>
                 {active.patientPhone ? <span className="text-sm text-muted">{active.patientPhone}</span> : null}
+                <span className="text-sm text-muted">
+                  {active.fillsUsed} of {1 + active.refillsAllowed} fills · {active.refillsRemaining} refill{active.refillsRemaining === 1 ? "" : "s"} left
+                </span>
+                {active.patientId ? (
+                  <Link href={`/patients/${active.patientId}`} className="text-sm text-pine underline">
+                    Patient history
+                  </Link>
+                ) : null}
               </div>
               {active.notes ? <p className="mb-3 text-sm">{active.notes}</p> : null}
               <ul className="divide-y divide-line rounded-xl border border-line">
@@ -389,10 +438,35 @@ export function PrescriptionsScreen() {
                   </Button>
                 </DialogFooter>
               ) : null}
-              {active.dispensedAt ? (
-                <p className="mt-3 text-sm text-muted">
-                  Dispensed by {active.dispensedByName} · {formatWhen(active.dispensedAt)}
-                </p>
+              {active.fills.length > 0 ? (
+                <ul className="mt-3 space-y-1 text-sm text-muted">
+                  {active.fills.map((fill) => (
+                    <li key={fill.id}>
+                      {fill.fillNumber === 1 ? "First fill" : `Refill ${fill.fillNumber - 1}`} by {fill.dispensedByName} · {formatWhen(fill.createdAt)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {active.status === "dispensed" && active.refillsRemaining > 0 ? (
+                <DialogFooter>
+                  <label className="mr-auto flex items-center gap-2 text-sm">
+                    <span className="text-muted">Payment</span>
+                    <select
+                      className="h-9 rounded-lg border border-line bg-paper-2 px-2"
+                      value={paymentMethodId ?? ""}
+                      onChange={(event) => setPaymentMethodId(Number(event.target.value))}
+                    >
+                      {methods.map((method) => (
+                        <option key={method.id} value={method.id}>
+                          {method.name}{method.settlesImmediately ? "" : " · on account"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button disabled={pending} onClick={() => void refill(active.id)}>
+                    {pending ? "Working…" : "Dispense refill"}
+                  </Button>
+                </DialogFooter>
               ) : null}
             </>
           ) : null}

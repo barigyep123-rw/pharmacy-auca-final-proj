@@ -1,4 +1,5 @@
 import { exampleStaff } from "./example-staff";
+import { packForForm } from "./units";
 import { hashPassword } from "./password";
 import type { QueryFn } from "./query";
 import type { Role } from "./types";
@@ -113,8 +114,8 @@ export async function seedCatalog(query: QueryFn) {
     await query(
       `insert into drugs (
         name, generic_name, category, form, strength, sku, unit_price, quantity,
-        reorder_level, expiry_date, batch_number, supplier
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        reorder_level, expiry_date, batch_number, supplier, base_unit, pack_unit, units_per_pack
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         drug.name,
         drug.genericName,
@@ -128,6 +129,9 @@ export async function seedCatalog(query: QueryFn) {
         drug.expiryDate,
         drug.batchNumber,
         drug.supplier,
+        packForForm(drug.form).baseUnit,
+        packForForm(drug.form).packUnit,
+        packForForm(drug.form).unitsPerPack,
       ],
     );
   }
@@ -204,10 +208,10 @@ export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
   const cetirizine = await drugBySku(query, "CET-10");
   const [dispensed] = await query<{ id: number }>(
     `insert into prescriptions (
-      patient_name, patient_phone, doctor_name, notes, status, created_by, dispensed_by, dispensed_at, created_at
+      patient_name, patient_phone, doctor_name, notes, status, refills_allowed, created_by, dispensed_by, dispensed_at, created_at
     ) values (
       'Chantal Uwimana', '0788 114 230', 'Dr. Ingabire', 'Allergic rhinitis.',
-      'dispensed', $1, $2, ${kigaliStamp(0, "16:40")}, ${kigaliStamp(0, "11:20")}
+      'dispensed', 2, $1, $2, ${kigaliStamp(0, "16:40")}, ${kigaliStamp(0, "11:20")}
     ) returning id`,
     [pharmacistId, pharmacistId],
   );
@@ -288,5 +292,49 @@ export async function insertSeed(query: QueryFn, passwords: StaffPasswords) {
     `insert into prescription_items (prescription_id, drug_id, quantity, dosage, unit_price)
      values ($1, $2, 3, '1 tablet daily for 3 days', $3)`,
     [cancelled.id, azi.id, azi.unit_price],
+  );
+
+  await query(
+    `insert into patients (name, phone)
+     select distinct on (lower(btrim(patient_name)), lower(btrim(patient_phone)))
+       btrim(patient_name), btrim(patient_phone)
+     from prescriptions
+     order by lower(btrim(patient_name)), lower(btrim(patient_phone)), id`,
+  );
+  await query(
+    `update prescriptions p
+     set patient_id = s.id
+     from patients s
+     where lower(btrim(p.patient_name)) = lower(s.name)
+       and lower(btrim(p.patient_phone)) = lower(s.phone)`,
+  );
+  await query(
+    `insert into prescription_fills (prescription_id, fill_number, dispensed_by, created_at)
+     select id, 1, dispensed_by, dispensed_at
+     from prescriptions
+     where status = 'dispensed' and dispensed_by is not null`,
+  );
+  await query(
+    `update sales s
+     set fill_id = f.id, patient_id = p.patient_id
+     from prescriptions p
+     join prescription_fills f on f.prescription_id = p.id and f.fill_number = 1
+     where s.prescription_id = p.id`,
+  );
+  await query(
+    `insert into suppliers (name, phone, contact_name, terms, address)
+     select v.name, v.phone, v.contact_name, v.terms, v.address
+     from (
+       values
+         ('Kigali Pharma Wholesale', '0788 300 100', 'Aline Uwase', 'Net 30 days', 'Gikondo, Kigali'),
+         ('Rwanda Medical Supply', '0788 200 440', 'Desk', 'Pay on receipt', 'Kigali')
+     ) as v(name, phone, contact_name, terms, address)
+     where not exists (select 1 from suppliers s where lower(s.name) = lower(v.name))`,
+  );
+  await query(
+    `update purchase_orders o
+     set supplier_id = s.id
+     from suppliers s
+     where o.supplier_id is null and lower(s.name) = lower(o.supplier_name)`,
   );
 }

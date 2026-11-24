@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { writeAudit } from "./audit";
 import { sql, withTransaction } from "./db";
 import { exampleStaff } from "./example-staff";
 import { ApiError } from "./errors";
@@ -49,6 +50,12 @@ export async function registerInitialAdmin(input: {
         [person.name, person.email, hash, person.role],
       );
     }
+    await writeAudit(query, user, {
+      action: "register",
+      entity: "staff",
+      entityId: user.id,
+      summary: `Registered ${user.name} as the first admin.`,
+    });
     return { id: user.id, name: user.name, email: user.email, role: user.role };
   });
   return { admin, demoStaff };

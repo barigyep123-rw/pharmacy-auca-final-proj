@@ -1,4 +1,5 @@
 import { assertAccess } from "./access";
+import { writeAudit } from "./audit";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
@@ -122,6 +123,12 @@ export async function createCurrency(
          returning id, code, name, symbol, is_default, active`,
         [input.code, input.name, input.symbol, input.isDefault],
       );
+      await writeAudit(query, actor, {
+        action: "create",
+        entity: "settings",
+        entityId: row.id,
+        summary: `Added currency ${row.code}.`,
+      });
       return currency(row);
     });
   } catch (error) {
@@ -161,6 +168,12 @@ export async function updateCurrency(
        returning id, code, name, symbol, is_default, active`,
       [input.name, input.symbol, input.isDefault, input.isDefault ? true : input.active, id],
     );
+    await writeAudit(query, actor, {
+      action: "update",
+      entity: "settings",
+      entityId: id,
+      summary: `Updated currency ${row.code}.`,
+    });
     return currency(row);
   });
 }
@@ -173,6 +186,12 @@ export async function removeCurrency(actor: Staff, id: number) {
   const [used] = await sql<{ n: number }>(`select count(*)::int as n from sales where currency_id = $1`, [id]);
   if ((used?.n ?? 0) > 0) throw new ApiError(409, "This currency is on a sale. Turn it off instead of removing it.");
   await sql(`delete from currencies where id = $1`, [id]);
+  await writeAudit(sql, actor, {
+    action: "delete",
+    entity: "settings",
+    entityId: id,
+    summary: `Removed a currency.`,
+  });
 }
 
 export async function listPaymentMethods(activeOnly = false): Promise<PaymentMethod[]> {
@@ -214,6 +233,12 @@ export async function createPaymentMethod(
        returning id, code, name, kind, settles_immediately, active, sort_order`,
       [input.code, input.name, input.kind, settles],
     );
+    await writeAudit(sql, actor, {
+      action: "create",
+      entity: "settings",
+      entityId: row.id,
+      summary: `Added payment method ${row.name}.`,
+    });
     return method(row);
   } catch (error) {
     if (isUniqueViolation(error)) throw new ApiError(409, "That payment code is already in use.");
@@ -251,6 +276,12 @@ export async function updatePaymentMethod(
     [input.name, input.kind, settles, input.active, input.sortOrder, id],
   );
   if (!row) throw new ApiError(404, "That payment method is not on the list.");
+  await writeAudit(sql, actor, {
+    action: "update",
+    entity: "settings",
+    entityId: id,
+    summary: `Updated payment method ${row.name}.`,
+  });
   return method(row);
 }
 
@@ -268,6 +299,12 @@ export async function removePaymentMethod(actor: Staff, id: number) {
     if ((others?.n ?? 0) === 0) throw new ApiError(409, "The counter needs at least one active way to pay.");
   }
   await sql(`delete from payment_methods where id = $1`, [id]);
+  await writeAudit(sql, actor, {
+    action: "delete",
+    entity: "settings",
+    entityId: id,
+    summary: `Removed a payment method.`,
+  });
 }
 
 function profile(row: {
@@ -336,6 +373,12 @@ export async function updateBusinessProfile(actor: Staff, input: BusinessProfile
       input.defaultReorderLevel,
     ],
   );
+  await writeAudit(sql, actor, {
+    action: "update",
+    entity: "settings",
+    entityId: 1,
+    summary: `Updated the business profile for ${input.name}.`,
+  });
   return profile(row);
 }
 
