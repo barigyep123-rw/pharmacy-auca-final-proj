@@ -61,6 +61,7 @@ type DrugRow = {
   on_order: number | null;
   allocated: number | null;
   has_photo?: boolean;
+  photo_count?: number;
 };
 
 const drugSelect = `
@@ -71,7 +72,8 @@ const drugSelect = `
     d.category_id, d.subcategory_id, sub.name as subcategory,
     d.generic_id, d.variant_id, d.brand_name, d.manufacturer, d.barcode, d.rx_only,
     d.strip_size, d.strip_price, d.pack_price,
-    (d.photo is not null) as has_photo,
+    (d.photo is not null or exists (select 1 from drug_photos p where p.drug_id = d.id)) as has_photo,
+    (select count(*)::int from drug_photos p where p.drug_id = d.id) as photo_count,
     coalesce(o.on_order, 0)::int as on_order,
     coalesce(a.allocated, 0)::int as allocated
   from drugs d
@@ -143,6 +145,7 @@ function toDrug(row: DrugRow, today = kigaliToday()): Drug {
     expired: expiryDate < today,
     expiringSoon: expiryDate >= today && expiryDate <= soon,
     hasPhoto: row.has_photo === true,
+    photoCount: num(row.photo_count),
   };
 }
 
@@ -240,6 +243,65 @@ export async function getDrugPhoto(id: number): Promise<{ bytes: Uint8Array; typ
   return { bytes: photoBytes(row.photo), type: text(row.photo_type) || "image/jpeg" };
 }
 
+async function syncCoverPhoto(drugId: number) {
+  const [first] = await sql<{ photo: unknown; photo_type: string }>(
+    `select photo, photo_type from drug_photos where drug_id = $1 order by id limit 1`,
+    [drugId],
+  );
+  if (!first) {
+    await sql(`update drugs set photo = null, photo_type = '' where id = $1`, [drugId]);
+    return;
+  }
+  await sql(`update drugs set photo = $1, photo_type = $2 where id = $3`, [photoBytes(first.photo), text(first.photo_type) || "image/jpeg", drugId]);
+}
+
+export async function listDrugPhotos(drugId: number) {
+  const rows = await sql<{ id: number; created_at: string }>(
+    `select id, created_at from drug_photos where drug_id = $1 order by id`,
+    [drugId],
+  );
+  return rows.map((row) => ({ id: num(row.id), createdAt: text(row.created_at) }));
+}
+
+export async function getDrugPhotoById(drugId: number, photoId: number) {
+  const [row] = await sql<{ photo: unknown; photo_type: string }>(
+    `select photo, photo_type from drug_photos where id = $1 and drug_id = $2`,
+    [photoId, drugId],
+  );
+  if (!row) return null;
+  return { bytes: photoBytes(row.photo), type: text(row.photo_type) || "image/jpeg" };
+}
+
+export async function addDrugPhoto(user: Staff, drugId: number, dataUrl: string) {
+  if (!can(user.role, "inventory") && !can(user.role, "sales")) {
+    throw new ApiError(403, "You do not have access to that.");
+  }
+  const [drug] = await sql<{ id: number }>(`select id from drugs where id = $1`, [drugId]);
+  if (!drug) throw new ApiError(404, "That drug is no longer in the catalog.");
+  const [count] = await sql<{ n: number }>(`select count(*)::int as n from drug_photos where drug_id = $1`, [drugId]);
+  if (num(count?.n) >= 6) throw new ApiError(409, "A brand can keep six packaging photos.");
+  const photo = decodePhoto(dataUrl);
+  const [row] = await sql<{ id: number }>(
+    `insert into drug_photos (drug_id, photo, photo_type) values ($1, $2, $3) returning id`,
+    [drugId, photo.bytes, photo.type],
+  );
+  await syncCoverPhoto(drugId);
+  return { id: num(row.id), photos: await listDrugPhotos(drugId) };
+}
+
+export async function removeDrugPhoto(user: Staff, drugId: number, photoId: number) {
+  if (!can(user.role, "inventory") && !can(user.role, "sales")) {
+    throw new ApiError(403, "You do not have access to that.");
+  }
+  const [row] = await sql<{ id: number }>(
+    `delete from drug_photos where id = $1 and drug_id = $2 returning id`,
+    [photoId, drugId],
+  );
+  if (!row) throw new ApiError(404, "That photo is not on this brand.");
+  await syncCoverPhoto(drugId);
+  return listDrugPhotos(drugId);
+}
+
 export async function getPrescriptionPhoto(id: number): Promise<{ bytes: Uint8Array; type: string } | null> {
   const [row] = await sql<{ photo: unknown; photo_type: string }>(
     `select photo, photo_type from prescriptions where id = $1`,
@@ -327,6 +389,17 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
         quantity: input.openingQuantity,
       });
     }
+    const shots = [...(input.photos ?? [])];
+    if (input.photo && !shots.includes(input.photo)) shots.unshift(input.photo);
+    for (const shot of shots) {
+      const stored = storedPhoto(shot);
+      if (!stored.bytes) continue;
+      await sql(
+        `insert into drug_photos (drug_id, photo, photo_type) values ($1, $2, $3)`,
+        [row.id, stored.bytes, stored.type],
+      );
+    }
+    if (shots.length > 0) await syncCoverPhoto(row.id);
     const drug = (await getDrug(row.id)).drug;
     await writeAudit(sql, user, {
       action: "create",
@@ -411,7 +484,11 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
     );
     if (input.photo !== undefined) {
       const photo = storedPhoto(input.photo);
-      await sql(`update drugs set photo = $1, photo_type = $2 where id = $3`, [photo.bytes, photo.type, id]);
+      await sql(`delete from drug_photos where drug_id = $1`, [id]);
+      if (photo.bytes) {
+        await sql(`insert into drug_photos (drug_id, photo, photo_type) values ($1, $2, $3)`, [id, photo.bytes, photo.type]);
+      }
+      await syncCoverPhoto(id);
     }
     const drug = (await getDrug(id)).drug;
     await writeAudit(sql, user, {
@@ -466,20 +543,32 @@ export type BillPayment = { method: string; amount: number };
 
 export type Bill = {
   key: string;
+  saleIds: number[];
   createdAt: string;
   customerName: string;
+  customerPhone: string;
+  dueOn: string;
   sellerName: string;
   receiptNumbers: string[];
   lines: BillLine[];
   payments: BillPayment[];
+  history: Array<{ at: string; method: string; amount: number; by: string }>;
   total: number;
   balance: number;
   fiscalNote: string;
 };
 
+export type CreditAccount = {
+  customerName: string;
+  phone: string;
+  balance: number;
+  oldestDue: string;
+  openBills: number;
+};
+
 export async function listBills(): Promise<Bill[]> {
   const rows = await sql(
-    `select s.id, s.basket_id, s.quantity, s.unit_price, s.total, s.customer_name, s.created_at,
+    `select s.id, s.basket_id, s.quantity, s.unit_price, s.total, s.customer_name, s.customer_phone, s.due_on, s.created_at,
             s.receipt_number, s.directions, s.lot_label, s.fiscal_code,
             d.name as drug_name, d.strength, u.name as seller_name,
             coalesce(m.name, '') as payment_method_name,
@@ -495,9 +584,10 @@ export async function listBills(): Promise<Bill[]> {
   const collections = saleIds.length === 0
     ? []
     : await sql(
-        `select c.sale_id, c.amount, m.name
+        `select c.sale_id, c.amount, c.created_at, m.name, u.name as collected_by
          from collections c
          join payment_methods m on m.id = c.payment_method_id
+         join users u on u.id = c.collected_by
          where c.sale_id = any($1::int[])
          order by c.id`,
         [saleIds],
@@ -511,11 +601,20 @@ export async function listBills(): Promise<Bill[]> {
       );
   const coveredBySale = new Map(coveredRows.map((row) => [num(row.sale_id), num(row.covered)]));
   const paidBySale = new Map<number, Array<{ name: string; amount: number }>>();
+  const historyBySale = new Map<number, Bill["history"]>();
   for (const row of collections) {
     const id = num(row.sale_id);
     const list = paidBySale.get(id) ?? [];
     list.push({ name: text(row.name) || "Payment", amount: num(row.amount) });
     paidBySale.set(id, list);
+    const history = historyBySale.get(id) ?? [];
+    history.push({
+      at: text(row.created_at),
+      method: text(row.name) || "Payment",
+      amount: num(row.amount),
+      by: text(row.collected_by),
+    });
+    historyBySale.set(id, history);
   }
   const groups = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -542,10 +641,14 @@ export async function listBills(): Promise<Bill[]> {
     const paid = [...amounts.values()].reduce((sum, amount) => sum + amount, 0);
     const covered = ordered.reduce((sum, line) => sum + (coveredBySale.get(num(line.id)) ?? 0), 0);
     const fiscal = text(first?.fiscal_code);
+    const dueDates = ordered.map((line) => text(line.due_on).slice(0, 10)).filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort();
     return {
       key,
+      saleIds: ordered.map((line) => num(line.id)),
       createdAt: text(ordered[ordered.length - 1]?.created_at),
       customerName: text(first?.customer_name),
+      customerPhone: text(first?.customer_phone),
+      dueOn: dueDates[0] ?? "",
       sellerName: text(first?.seller_name),
       receiptNumbers: ordered.map((line) => text(line.receipt_number)).filter(Boolean),
       lines: ordered.map((line) => ({
@@ -558,6 +661,7 @@ export async function listBills(): Promise<Bill[]> {
         lotLabel: text(line.lot_label),
       })),
       payments: [...amounts.entries()].map(([method, amount]) => ({ method, amount })),
+      history: ordered.flatMap((line) => historyBySale.get(num(line.id)) ?? []),
       total,
       balance: Math.max(0, total - paid - covered),
       fiscalNote: fiscal ? `Local fiscal mark ${fiscal}. Not an RRA-signed EBM receipt.` : "",
@@ -565,6 +669,22 @@ export async function listBills(): Promise<Bill[]> {
   });
   bills.sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0));
   return bills.slice(0, 80);
+}
+
+export function creditAccounts(bills: Bill[]): CreditAccount[] {
+  const grouped = new Map<string, CreditAccount>();
+  for (const bill of bills) {
+    if (bill.balance < 1) continue;
+    const name = bill.customerName.trim() || "Walk-in";
+    const key = name.toLowerCase();
+    const current = grouped.get(key) ?? { customerName: name, phone: bill.customerPhone, balance: 0, oldestDue: "", openBills: 0 };
+    current.balance += bill.balance;
+    current.openBills += 1;
+    if (!current.phone && bill.customerPhone) current.phone = bill.customerPhone;
+    if (bill.dueOn && (!current.oldestDue || bill.dueOn < current.oldestDue)) current.oldestDue = bill.dueOn;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((left, right) => right.balance - left.balance);
 }
 
 export async function listSales(): Promise<Sale[]> {
@@ -787,6 +907,8 @@ export async function recordBasket(
     paymentMethodId: number;
     patientId?: number | null;
     memberNumber?: string;
+    customerPhone?: string;
+    dueOn?: string;
     acknowledgeRisks?: boolean;
     lines: SaleInput[];
     tenders?: Array<{ paymentMethodId: number; amount: number }>;
@@ -877,6 +999,15 @@ export async function recordBasket(
     if (payment.paid < due) {
       receipt.fiscalNote = `${receipt.fiscalNote ?? ""} Paid ${formatRwf(payment.paid)}. ${formatRwf(due - payment.paid)} stays on the bill.`.trim();
     }
+  }
+  if (!receipt.settlesImmediately) {
+    const requested = (input.dueOn ?? "").trim();
+    const dueOn = /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : addDays(kigaliToday(), 30);
+    await sql(`update sales set due_on = $1, customer_phone = $2 where basket_id = $3`, [
+      dueOn,
+      (input.customerPhone ?? "").trim(),
+      num(basket.id),
+    ]);
   }
   return { id: num(basket.id), pending, receipt };
 }

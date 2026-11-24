@@ -11,6 +11,7 @@ import { formatDay, formatRwf, formatWhen } from "@/lib/format";
 import { describeStock } from "@/lib/units";
 import type { Drug, Movement } from "@/lib/types";
 import { useStaff } from "./session";
+import { BrandPhotos } from "./brand-photos";
 import { StockTools } from "./stock-tools";
 import { mergeSupplierNames, SupplierField } from "./supplier-field";
 import { Badge } from "./ui/badge";
@@ -42,8 +43,7 @@ type DrugDraft = {
   expiryDate: string;
   batchNumber: string;
   supplier: string;
-  photoData: string;
-  clearPhoto: boolean;
+  photos: string[];
 };
 
 const shelfFilters: Array<{ id: ShelfFilter; label: string }> = [
@@ -75,8 +75,7 @@ function emptyDrug(reorderLevel = "10"): DrugDraft {
     expiryDate: "",
     batchNumber: "",
     supplier: "",
-    photoData: "",
-    clearPhoto: false,
+    photos: [],
   };
 }
 
@@ -102,8 +101,7 @@ function draftFromDrug(drug: Drug): DrugDraft {
     expiryDate: drug.expiryDate,
     batchNumber: drug.batchNumber,
     supplier: drug.supplier,
-    photoData: "",
-    clearPhoto: false,
+    photos: [],
   };
 }
 
@@ -284,8 +282,7 @@ export function InventoryScreen() {
             packUnit: draft.packUnit,
             unitsPerPack,
           };
-          if (draft.photoData) body.photo = draft.photoData;
-          else if (editing && draft.clearPhoto) body.photo = null;
+          if (!editing && draft.photos.length > 0) body.photos = draft.photos;
           try {
             if (editing) {
               await api(`/api/drugs/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -375,12 +372,17 @@ function Shelf({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {drug.hasPhoto ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={`/api/drugs/${drug.id}/photo`}
-                            alt=""
-                            className="size-10 shrink-0 rounded-lg object-cover"
-                          />
+                          <span className="relative shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/drugs/${drug.id}/photo`}
+                              alt=""
+                              className="size-10 rounded-lg object-cover"
+                            />
+                            {drug.photoCount > 1 ? (
+                              <span className="absolute -right-1 -bottom-1 rounded bg-ink px-1 text-[10px] text-paper-2">+{drug.photoCount - 1}</span>
+                            ) : null}
+                          </span>
                         ) : null}
                         <div>
                           <p className="font-medium">{drug.name}</p>
@@ -467,8 +469,6 @@ function DrugDialog({
   const [generics, setGenerics] = useState<string[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  const existingPhoto = drug?.hasPhoto && !draft.clearPhoto ? `/api/drugs/${drug.id}/photo` : "";
-  const preview = draft.photoData || existingPhoto;
 
   useEffect(() => {
     let cancel = false;
@@ -521,20 +521,25 @@ function DrugDialog({
           }}
         >
           {error ? <div className="sm:col-span-2"><Notice>{error}</Notice></div> : null}
-          <div className="space-y-2 sm:col-span-2">
-            <span className="text-sm font-medium">Photo</span>
-            <div className="flex items-center gap-3">
-              {preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={preview} alt="" className="size-16 rounded-lg object-cover" />
-              ) : (
-                <div className="flex size-16 items-center justify-center rounded-lg border border-dashed border-line text-xs text-muted">
-                  None
-                </div>
-              )}
-              <div className="space-y-1">
+          {drug ? <BrandPhotos drugId={drug.id} /> : (
+            <div className="space-y-2 sm:col-span-2">
+              <span className="text-sm font-medium">Packaging photos</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {draft.photos.map((photo, index) => (
+                  <div key={photo.slice(0, 32) + index} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo} alt="" className="size-16 rounded-lg object-cover" />
+                    <button
+                      type="button"
+                      className="absolute -right-1 -top-1 rounded-full bg-ink px-1.5 text-[10px] text-paper-2"
+                      onClick={() => setDraft((current) => ({ ...current, photos: current.photos.filter((_, item) => item !== index) }))}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
                 <label className="inline-flex cursor-pointer items-center rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm">
-                  {preview ? "Change photo" : "Add photo"}
+                  Add photo
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
@@ -545,26 +550,15 @@ function DrugDialog({
                       if (!file) return;
                       setPhotoError(null);
                       void compressPhoto(file)
-                        .then((photoData) => setDraft((current) => ({ ...current, photoData, clearPhoto: false })))
-                        .catch((caught: unknown) => {
-                          setPhotoError(caught instanceof Error ? caught.message : "Could not read that photo.");
-                        });
+                        .then((photo) => setDraft((current) => ({ ...current, photos: [...current.photos, photo].slice(0, 6) })))
+                        .catch((caught: unknown) => setPhotoError(caught instanceof Error ? caught.message : "Could not read that photo."));
                     }}
                   />
                 </label>
-                {preview ? (
-                  <button
-                    type="button"
-                    className="block text-sm text-muted hover:text-ink"
-                    onClick={() => setDraft((current) => ({ ...current, photoData: "", clearPhoto: true }))}
-                  >
-                    Remove photo
-                  </button>
-                ) : null}
               </div>
+              {photoError ? <p className="text-sm text-clay">{photoError}</p> : null}
             </div>
-            {photoError ? <p className="text-sm text-clay">{photoError}</p> : null}
-          </div>
+          )}
           <label className="space-y-1.5 sm:col-span-2">
             <span className="text-sm font-medium">Name</span>
             <Input value={draft.name} onChange={(event) => set("name", event.target.value)} required />

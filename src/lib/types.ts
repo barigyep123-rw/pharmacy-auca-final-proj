@@ -42,6 +42,7 @@ export type Drug = {
   expired: boolean;
   expiringSoon: boolean;
   hasPhoto: boolean;
+  photoCount: number;
 };
 
 export type Movement = {

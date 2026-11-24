@@ -44,6 +44,7 @@ export const drugInputSchema = z.object({
   packUnit: z.string().trim().min(2).max(24).optional().default("box"),
   unitsPerPack: z.number().int().min(1).max(10_000).optional().default(1),
   photo: z.string().trim().max(900_000, "That photo is too large.").optional(),
+  photos: z.array(z.string().trim().max(900_000, "That photo is too large.")).max(6).optional(),
 });
 
 export const drugUpdateSchema = drugInputSchema.omit({ openingQuantity: true, photo: true }).extend({
@@ -76,6 +77,8 @@ export const basketSchema = z.object({
   paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
   patientId: z.number().int().positive().nullable().optional(),
   memberNumber: optionalText(40),
+  customerPhone: optionalText(24),
+  dueOn: optionalText(10),
   acknowledgeRisks: z.boolean().optional().default(false),
   lines: z.array(saleSchema.omit({ customerName: true, paymentMethodId: true, patientId: true, acknowledgeRisks: true })).min(1).max(20),
   tenders: z.array(tenderLineSchema).max(4).optional(),
@@ -93,6 +96,12 @@ export const invoiceSchema = z.object({
   issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a real invoice date."),
   notes: optionalText(200),
   purchaseOrderId: z.number().int().positive().nullable().optional(),
+});
+
+export const billCollectSchema = z.object({
+  saleIds: z.array(z.number().int().positive()).min(1).max(20),
+  amount: z.number().int().min(1, "Enter the amount collected.").max(50_000_000),
+  paymentMethodId: z.number().int().min(1, "Choose how the balance was paid."),
 });
 
 export const collectionSchema = z.object({

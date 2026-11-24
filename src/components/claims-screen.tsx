@@ -7,6 +7,7 @@ import { formatRwf, formatWhen } from "@/lib/format";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
+import { DocumentDialog } from "./print-document";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
 type Insurer = { id: number; name: string; kind: string };
@@ -29,6 +30,7 @@ export function ClaimsScreen() {
   const [memberNumber, setMemberNumber] = useState("");
   const [patientPaid, setPatientPaid] = useState("0");
   const [insurerAmount, setInsurerAmount] = useState("");
+  const [printing, setPrinting] = useState<Claim | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -164,13 +166,36 @@ export function ClaimsScreen() {
                       </Button>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatRwf(claim.insurerAmount)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="mr-3 tabular-nums">{formatRwf(claim.insurerAmount)}</span>
+                    <Button type="button" size="sm" variant="quiet" onClick={() => setPrinting(claim)}>Print form</Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </Card>
+      <DocumentDialog
+        open={Boolean(printing)}
+        title="Insurance claim"
+        description="A paper form for an insurer that still takes claims by hand. This is not submitted to RSSB or a private insurer."
+        onClose={() => setPrinting(null)}
+      >
+        {printing ? (
+          <div>
+            <p style={{ margin: "12px 0 0", fontWeight: 700 }}>Manual insurance claim {printing.id}</p>
+            <p style={{ margin: "8px 0 0" }}>Insurer: {printing.insurer}</p>
+            <p style={{ margin: 0 }}>Member: {printing.memberNumber || "—"}</p>
+            <p style={{ margin: 0 }}>Patient: {printing.patientName || "—"}</p>
+            <p style={{ margin: 0 }}>Filed: {formatWhen(printing.createdAt)} · status {printing.status}</p>
+            <p style={{ margin: "8px 0 0" }}>Patient paid {formatRwf(printing.patientPaid)}</p>
+            <p style={{ margin: 0 }}>Insurer is asked to pay {formatRwf(printing.insurerAmount)}</p>
+            <p style={{ margin: "16px 0 0" }}>Pharmacist signature ________ &nbsp;&nbsp; Date ________</p>
+            <p style={{ margin: "12px 0 0" }}>Insurer stamp ________</p>
+          </div>
+        ) : null}
+      </DocumentDialog>
     </div>
   );
 }

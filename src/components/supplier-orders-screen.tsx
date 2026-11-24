@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { suggestedOrderQty, wholeNumber } from "@/lib/catalog";
 import { formatDay, formatRwf, formatWhen } from "@/lib/format";
+import type { SupplierProfile } from "@/lib/suppliers";
 import type { Drug, PurchaseOrder } from "@/lib/types";
 import { mergeSupplierNames, SupplierField } from "./supplier-field";
 import { Badge } from "./ui/badge";
@@ -14,6 +15,7 @@ import { Card } from "./ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
+import { DocumentDialog } from "./print-document";
 import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 
 type OrderFilter = "all" | PurchaseOrder["status"];
@@ -57,6 +59,7 @@ export function SupplierOrdersScreen() {
   const [supplierName, setSupplierName] = useState("");
   const [orderNotes, setOrderNotes] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
+  const [paper, setPaper] = useState<"order" | "delivery" | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -210,6 +213,7 @@ export function SupplierOrdersScreen() {
             setPending(false);
           }
         }}
+        onPrint={(kind) => setPaper(kind)}
         onCancel={async (id) => {
           setPending(true);
           try {
@@ -224,6 +228,74 @@ export function SupplierOrdersScreen() {
           }
         }}
       />
+      <DocumentDialog
+        open={Boolean(paper && selectedOrder)}
+        title={paper === "delivery" ? "Goods received note" : "Supplier order"}
+        description="This page is the print preview. Print sends the same page."
+        onClose={() => setPaper(null)}
+      >
+        {selectedOrder && paper ? <OrderPaper order={selectedOrder} kind={paper} /> : null}
+      </DocumentDialog>
+    </div>
+  );
+}
+
+function OrderPaper({ order, kind }: { order: PurchaseOrder; kind: "order" | "delivery" }) {
+  const [supplier, setSupplier] = useState<SupplierProfile | null>(null);
+  useEffect(() => {
+    let cancel = false;
+    api<{ suppliers: SupplierProfile[] }>("/api/supplier-profiles")
+      .then((result) => {
+        if (cancel) return;
+        setSupplier(result.suppliers.find((item) => item.name.toLowerCase() === order.supplierName.toLowerCase()) ?? null);
+      })
+      .catch(() => {
+        if (!cancel) setSupplier(null);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [order.supplierName]);
+  return (
+    <div>
+      <p style={{ margin: "12px 0 0", fontWeight: 700 }}>
+        {kind === "delivery" ? "Goods received note" : "Purchase order"} PO-{String(order.id).padStart(3, "0")}
+      </p>
+      <p style={{ margin: "2px 0 0" }}>
+        {kind === "delivery" ? "Received" : "Ordered"} {formatWhen(kind === "delivery" ? order.receivedAt || order.orderedAt : order.orderedAt)}
+        {kind === "delivery" && order.receivedByName ? ` · received by ${order.receivedByName}` : ` · placed by ${order.orderedByName}`}
+      </p>
+      <p style={{ margin: "10px 0 0", fontWeight: 700 }}>Supplier</p>
+      <p style={{ margin: 0 }}>{order.supplierName}</p>
+      {supplier?.contactName ? <p style={{ margin: 0 }}>{supplier.contactName}</p> : null}
+      {supplier?.phone || supplier?.email ? <p style={{ margin: 0 }}>{[supplier.phone, supplier.email].filter(Boolean).join(" · ")}</p> : null}
+      {supplier?.address ? <p style={{ margin: 0 }}>{supplier.address}</p> : null}
+      {supplier?.taxNumber ? <p style={{ margin: 0 }}>TIN {supplier.taxNumber}</p> : null}
+      {supplier?.terms ? <p style={{ margin: 0 }}>Terms: {supplier.terms}</p> : null}
+      <table style={{ width: "100%", marginTop: 12, borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left", borderBottom: "1px solid #111" }}>Drug</th>
+            <th style={{ textAlign: "right", borderBottom: "1px solid #111" }}>Qty</th>
+            <th style={{ textAlign: "right", borderBottom: "1px solid #111" }}>Cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.items.map((item) => (
+            <tr key={item.id}>
+              <td style={{ paddingTop: 4 }}>{item.drugName} {item.strength}</td>
+              <td style={{ textAlign: "right" }}>{item.quantity}</td>
+              <td style={{ textAlign: "right" }}>{formatRwf(item.lineTotal)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p style={{ margin: "8px 0 0", textAlign: "right", fontWeight: 700 }}>Total {formatRwf(order.totalCost)}</p>
+      {order.notes ? <p style={{ margin: "8px 0 0" }}>{order.notes}</p> : null}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 28 }}>
+        <p>Supplier signature ________</p>
+        <p>Pharmacy signature ________</p>
+      </div>
     </div>
   );
 }
@@ -570,12 +642,14 @@ function OrderDetail({
   onClose,
   onReceive,
   onCancel,
+  onPrint,
 }: {
   order: PurchaseOrder | null;
   pending: boolean;
   onClose: () => void;
   onReceive: (id: number) => void;
   onCancel: (id: number) => void;
+  onPrint: (kind: "order" | "delivery") => void;
 }) {
   return (
     <Dialog open={Boolean(order)} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -612,16 +686,22 @@ function OrderDetail({
                 </li>
               ))}
             </ul>
-            {order.status === "ordered" ? (
-              <DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="quiet" onClick={() => onPrint("order")}>Print order</Button>
+              {order.status === "received" ? (
+                <Button type="button" variant="quiet" onClick={() => onPrint("delivery")}>Print delivery note</Button>
+              ) : null}
+              {order.status === "ordered" ? (
                 <Button variant="quiet" disabled={pending} onClick={() => onCancel(order.id)}>
                   Cancel order
                 </Button>
+              ) : null}
+              {order.status === "ordered" ? (
                 <Button disabled={pending} onClick={() => onReceive(order.id)}>
                   {pending ? "Receiving…" : "Receive and add to stock"}
                 </Button>
-              </DialogFooter>
-            ) : null}
+              ) : null}
+            </DialogFooter>
           </>
         ) : null}
       </DialogContent>

@@ -1,4 +1,4 @@
-import { assertAccess } from "./access";
+import { assertAccess, can } from "./access";
 import { writeAudit } from "./audit";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
@@ -337,5 +337,69 @@ export async function collectCredit(
       summary: `Collected ${input.amount} against sale ${input.saleId}.`,
     });
     return { remaining: remaining - input.amount };
+  });
+}
+
+export async function collectAgainstSales(
+  actor: Staff,
+  input: { saleIds: number[]; amount: number; paymentMethodId: number },
+) {
+  if (!can(actor.role, "finance") && !can(actor.role, "sales")) {
+    throw new ApiError(403, "You do not have access to that.");
+  }
+  return withTransaction(async (query) => {
+    const [method] = await query<{ id: number; settles_immediately: boolean; active: boolean }>(
+      `select id, settles_immediately, active from payment_methods where id = $1`,
+      [input.paymentMethodId],
+    );
+    if (!method || !method.active || !method.settles_immediately) {
+      throw new ApiError(400, "Collect into a method that is paid now, such as cash or mobile money.");
+    }
+    const sales = await query<{ id: number; total: number; settles: boolean }>(
+      `select s.id, s.total, m.settles_immediately as settles
+       from sales s
+       join payment_methods m on m.id = s.payment_method_id
+       where s.id = any($1::int[])
+       order by s.id
+       for update of s`,
+      [input.saleIds],
+    );
+    if (sales.length === 0) throw new ApiError(404, "That bill is not on the books.");
+    let left = input.amount;
+    let open = 0;
+    for (const sale of sales) {
+      if (sale.settles) continue;
+      const [collected] = await query<{ n: number }>(
+        `select coalesce(sum(amount), 0)::int as n from collections where sale_id = $1`,
+        [num(sale.id)],
+      );
+      const [covered] = await query<{ n: number }>(
+        `select coalesce(sum(insurer_amount), 0)::int as n from sale_coverages where sale_id = $1`,
+        [num(sale.id)],
+      );
+      const remaining = num(sale.total) - num(collected?.n) - num(covered?.n);
+      open += Math.max(0, remaining);
+      const take = Math.min(left, Math.max(0, remaining));
+      if (take < 1) continue;
+      await query(
+        `insert into collections (sale_id, amount, payment_method_id, collected_by) values ($1, $2, $3, $4)`,
+        [num(sale.id), take, input.paymentMethodId, actor.id],
+      );
+      await query(
+        `insert into ledger_entries (kind, direction, amount, payment_method_id, sale_id, note, created_by)
+         values ('collection', 'in', $1, $2, $3, 'Credit collected', $4)`,
+        [take, input.paymentMethodId, num(sale.id), actor.id],
+      );
+      left -= take;
+    }
+    if (input.amount > open) throw new ApiError(409, `Only ${open} is still outstanding.`);
+    if (left > 0) throw new ApiError(409, `Only ${input.amount - left} could be applied.`);
+    await writeAudit(query, actor, {
+      action: "collect",
+      entity: "collection",
+      entityId: num(sales[0]?.id),
+      summary: `Collected ${input.amount} against ${sales.length} credit line${sales.length === 1 ? "" : "s"}.`,
+    });
+    return { remaining: open - input.amount };
   });
 }

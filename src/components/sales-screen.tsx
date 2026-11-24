@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
 import { formatRwf } from "@/lib/format";
+import { addDays, kigaliToday } from "@/lib/time";
 import { baseCount, describeStock } from "@/lib/units";
 import type { Drug, PaymentReceipt } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
@@ -82,6 +83,8 @@ export function SalesScreen({ today }: { today: string }) {
   const [acknowledge, setAcknowledge] = useState(false);
   const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
   const [memberNumber, setMemberNumber] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [dueOn, setDueOn] = useState(() => addDays(kigaliToday(), 30));
   const [cover, setCover] = useState<{
     patientName: string;
     patientPayable: number;
@@ -276,6 +279,8 @@ export function SalesScreen({ today }: { today: string }) {
         body: JSON.stringify({
           customerName: named,
           memberNumber: cardReady ? memberNumber.trim() : "",
+          customerPhone,
+          dueOn,
           paymentMethodId: method.id,
           acknowledgeRisks: risks,
           lines: cart.map((line) => ({ drugId: line.drugId, quantity: line.quantity, soldAs: line.soldAs })),
@@ -350,6 +355,16 @@ export function SalesScreen({ today }: { today: string }) {
               onChange={(event) => setCustomerName(event.target.value)}
               placeholder="Customer, if this is a bill"
             />
+            <Input
+              className="mt-2"
+              value={customerPhone}
+              onChange={(event) => setCustomerPhone(event.target.value)}
+              placeholder="Phone, if they will pay later"
+            />
+            <label className="mt-2 block text-xs text-muted">
+              Due date if this stays on credit
+              <Input type="date" className="mt-1" value={dueOn} onChange={(event) => setDueOn(event.target.value)} />
+            </label>
             <Input
               className="mt-2"
               value={memberNumber}
@@ -444,6 +459,10 @@ export function SalesScreen({ today }: { today: string }) {
                     onClick={() => void openProduct(drug)}
                     className="flex h-full min-h-24 w-full flex-col justify-between rounded-xl bg-paper px-3 py-2 text-left disabled:opacity-45"
                   >
+                    {drug.hasPhoto ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={`/api/drugs/${drug.id}/photo`} alt="" className="mb-2 h-16 w-full rounded-lg object-cover" />
+                    ) : null}
                     <span>
                       <span className="block text-xs uppercase tracking-wide text-muted">{drug.genericName || "No generic"}</span>
                       <span className="block font-medium">{drug.brandName || drug.name}</span>

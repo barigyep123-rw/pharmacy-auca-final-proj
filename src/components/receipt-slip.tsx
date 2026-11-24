@@ -5,12 +5,13 @@ import { pharmacyName, pharmacyPlace } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { formatRwf } from "@/lib/format";
 import type { PaymentReceipt } from "@/lib/types";
+import { PharmacyMark } from "./print-document";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 
-type Shop = { name: string; phone: string; email: string; address: string };
+type Shop = { name: string; phone: string; email: string; address: string; tin: string };
 
-const fallbackShop: Shop = { name: pharmacyName, phone: "", email: "", address: pharmacyPlace };
+const fallbackShop: Shop = { name: pharmacyName, phone: "", email: "", address: pharmacyPlace, tin: "" };
 
 function heading(numbers: string[]) {
   const list = numbers.filter(Boolean);
@@ -58,10 +59,12 @@ export function ReceiptPaper({
       }}
     >
       <header style={{ textAlign: "center" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}><PharmacyMark /></div>
         <p style={{ margin: 0, fontFamily: '"Source Serif 4", ui-serif, Georgia, serif', fontSize: "16px" }}>{shop.name}</p>
         {shop.address ? <p style={{ margin: "2px 0 0" }}>{shop.address}</p> : null}
         {shop.phone ? <p style={{ margin: 0 }}>{shop.phone}</p> : null}
         {shop.email ? <p style={{ margin: 0 }}>{shop.email}</p> : null}
+        {shop.tin ? <p style={{ margin: 0 }}>TIN {shop.tin}</p> : null}
       </header>
       <p style={{ margin: "8px 0", borderTop: "1px dashed #111" }} />
       <p style={{ margin: 0, textAlign: "center", fontWeight: 700 }}>{heading(receipt.numbers)}</p>
@@ -149,6 +152,7 @@ export function ReceiptDialog({
             phone: result.profile.phone,
             email: result.profile.email,
             address: result.profile.address,
+            tin: result.profile.tin,
           });
         }
       })
