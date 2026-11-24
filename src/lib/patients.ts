@@ -188,7 +188,7 @@ export async function patientHistory(id: number): Promise<PatientHistory> {
     phone: text(patient.phone),
     notes: text(patient.notes),
     sex: text(patient.sex),
-    dateOfBirth: text(patient.date_of_birth),
+    dateOfBirth: text(patient.date_of_birth).slice(0, 10),
     insurerName: text(patient.insurer_name),
     memberNumber: text(patient.member_number),
     allergies: text(patient.allergies),

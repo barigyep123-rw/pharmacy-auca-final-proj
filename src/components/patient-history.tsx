@@ -16,6 +16,8 @@ import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
 export function PatientHistoryScreen({ id }: { id: number }) {
   const [record, setRecord] = useState<PatientHistory | null>(null);
   const [notes, setNotes] = useState("");
+  const [sex, setSex] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [allergies, setAllergies] = useState("");
   const [insurerName, setInsurerName] = useState("");
   const [memberNumber, setMemberNumber] = useState("");
@@ -31,6 +33,8 @@ export function PatientHistoryScreen({ id }: { id: number }) {
         if (cancel) return;
         setRecord(result);
         setNotes(result.notes);
+        setSex(result.sex);
+        setDateOfBirth(result.dateOfBirth);
         setAllergies(result.allergies);
         setInsurerName(result.insurerName);
         setMemberNumber(result.memberNumber);
@@ -51,7 +55,7 @@ export function PatientHistoryScreen({ id }: { id: number }) {
     try {
       const result = await api<PatientHistory>(`/api/patients/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ notes, allergies, insurerName, memberNumber, preferredBrand, brandPreference }),
+        body: JSON.stringify({ notes, sex, dateOfBirth, allergies, insurerName, memberNumber, preferredBrand, brandPreference }),
       });
       setRecord(result);
       toast.success("Notes saved.");
@@ -119,6 +123,18 @@ export function PatientHistoryScreen({ id }: { id: number }) {
           <h2 className="mb-3 font-serif text-xl">Notes</h2>
           <form className="space-y-3" onSubmit={(event) => void saveNotes(event)}>
             <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} />
+            <label className="block space-y-1.5 text-sm">
+              Sex
+              <select className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2" value={sex} onChange={(event) => setSex(event.target.value)}>
+                <option value="">Not recorded</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </label>
+            <label className="block space-y-1.5 text-sm">
+              Date of birth
+              <Input type="date" value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} />
+            </label>
             <label className="block space-y-1.5 text-sm">
               Allergies
               <Input value={allergies} onChange={(event) => setAllergies(event.target.value)} />
