@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatWhen } from "@/lib/format";
+import type { InsurerCompany, PatientPolicy } from "@/lib/insurance";
 import type { PatientHistory } from "@/lib/patients";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -25,6 +26,10 @@ export function PatientHistoryScreen({ id }: { id: number }) {
   const [brandPreference, setBrandPreference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [policies, setPolicies] = useState<PatientPolicy[]>([]);
+  const [companies, setCompanies] = useState<InsurerCompany[]>([]);
+  const [insurerId, setInsurerId] = useState<number | null>(null);
+  const [cardNumber, setCardNumber] = useState("");
 
   useEffect(() => {
     let cancel = false;
@@ -44,6 +49,25 @@ export function PatientHistoryScreen({ id }: { id: number }) {
       .catch((caught: unknown) => {
         if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load this patient.");
       });
+    return () => {
+      cancel = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    let cancel = false;
+    Promise.all([
+      api<{ policies: PatientPolicy[] }>(`/api/patients/${id}/policies`),
+      api<{ companies: InsurerCompany[] }>("/api/insurance/companies"),
+    ])
+      .then(([cards, insurers]) => {
+        if (cancel) return;
+        setPolicies(cards.policies);
+        const active = insurers.companies.filter((company) => company.active);
+        setCompanies(active);
+        setInsurerId((current) => current ?? active[0]?.id ?? null);
+      })
+      .catch(() => undefined);
     return () => {
       cancel = true;
     };
@@ -81,6 +105,59 @@ export function PatientHistoryScreen({ id }: { id: number }) {
       </p>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="space-y-4">
+          <Card className="p-4">
+            <h2 className="font-serif text-xl">Insurance cards</h2>
+            <p className="mt-1 text-sm text-muted">The counter verifies this member number. A free-text insurer name above is only a note.</p>
+            {policies.length === 0 ? <p className="mt-3 text-sm text-muted">No card yet.</p> : (
+              <ul className="mt-3 divide-y divide-line text-sm">
+                {policies.map((policy) => (
+                  <li key={policy.id} className="flex items-center justify-between gap-3 py-2">
+                    <span>{policy.insurerName} · {policy.memberNumber}{policy.isPrimary ? " · primary" : ""}</span>
+                    <button
+                      type="button"
+                      className="text-clay hover:underline"
+                      onClick={() => {
+                        void api<{ policies: PatientPolicy[] }>(`/api/patients/${id}/policies/${policy.id}`, { method: "DELETE" })
+                          .then((result) => setPolicies(result.policies))
+                          .catch((caught: unknown) => toast.error(caught instanceof Error ? caught.message : "Could not remove the card."));
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form
+              className="mt-3 flex flex-wrap items-end gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!insurerId) return;
+                void api<{ policies: PatientPolicy[] }>(`/api/patients/${id}/policies`, {
+                  method: "POST",
+                  body: JSON.stringify({ insurerId, memberNumber: cardNumber, isPrimary: policies.length === 0 }),
+                })
+                  .then((result) => {
+                    setPolicies(result.policies);
+                    setCardNumber("");
+                    toast.success("Card saved. The counter can verify it.");
+                  })
+                  .catch((caught: unknown) => toast.error(caught instanceof Error ? caught.message : "Could not save the card."));
+              }}
+            >
+              <label className="space-y-1.5 text-sm">
+                Insurer
+                <select className="h-10 rounded-lg border border-line bg-paper-2 px-2" value={insurerId ?? ""} onChange={(event) => setInsurerId(Number(event.target.value))}>
+                  {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5 text-sm">
+                Member number
+                <Input value={cardNumber} onChange={(event) => setCardNumber(event.target.value)} required />
+              </label>
+              <Button type="submit" variant="quiet">Add card</Button>
+            </form>
+          </Card>
           <Card className="overflow-hidden">
             <h2 className="border-b border-line px-4 py-3 font-serif text-xl">Prescriptions</h2>
             {record.prescriptions.length === 0 ? (

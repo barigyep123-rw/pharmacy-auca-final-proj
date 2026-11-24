@@ -130,6 +130,18 @@ export async function deleteSubcategory(user: Staff, id: number) {
   if (!row) throw new ApiError(404, "That subcategory is no longer on the list.");
 }
 
+export async function listGenericNames() {
+  const rows = await sql<{ name: string }>(
+    `select name from (
+       select name from generics
+       union
+       select btrim(generic_name) as name from drugs where btrim(generic_name) <> ''
+     ) names
+     order by lower(name)`,
+  );
+  return rows.map((row) => text(row.name)).filter((name) => name.length >= 2);
+}
+
 export async function ensureGenericVariant(
   query: QueryFn,
   input: { genericName: string; strength: string; form: string },

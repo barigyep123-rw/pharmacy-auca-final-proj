@@ -84,13 +84,17 @@ export async function ledger() {
     `select s.id, s.receipt_number, d.name as drug_name, d.strength, s.quantity, s.total,
             s.customer_name, coalesce(m.name, 'Cash') as tender_name, coalesce(m.kind, 'cash') as tender_kind,
             coalesce(m.settles_immediately, true) as settles_immediately,
-            coalesce(c.collected, 0)::int as collected, s.created_at
+            coalesce(c.collected, 0)::int as collected,
+            coalesce(cov.covered, 0)::int as covered, s.created_at
      from sales s
      join drugs d on d.id = s.drug_id
      left join payment_methods m on m.id = s.payment_method_id
      left join (
        select sale_id, sum(amount)::int as collected from collections group by sale_id
      ) c on c.sale_id = s.id
+     left join (
+       select sale_id, sum(insurer_amount)::int as covered from sale_coverages group by sale_id
+     ) cov on cov.sale_id = s.id
      order by s.created_at desc
      limit 200`,
   );
@@ -103,6 +107,7 @@ export async function ledger() {
     sales: sales.map((row): LedgerSale => {
       const total = num(row.total);
       const collected = num(row.collected);
+      const covered = num(row.covered);
       const settles = row.settles_immediately !== false;
       return {
         id: num(row.id),
@@ -116,7 +121,7 @@ export async function ledger() {
         tenderKind: text(row.tender_kind),
         settlesImmediately: settles,
         collected: settles ? total : collected,
-        remaining: settles ? 0 : Math.max(0, total - collected),
+        remaining: settles ? 0 : Math.max(0, total - collected - covered),
         createdAt: text(row.created_at),
       };
     }),
@@ -255,20 +260,25 @@ export type OutstandingSale = {
 export async function listOutstanding(): Promise<OutstandingSale[]> {
   const rows = await sql(
     `select s.id, s.receipt_number, d.name as drug_name, s.customer_name, s.total,
-            coalesce(c.collected, 0)::int as collected, s.created_at
+            coalesce(c.collected, 0)::int as collected,
+            coalesce(cov.covered, 0)::int as covered, s.created_at
      from sales s
      join drugs d on d.id = s.drug_id
      join payment_methods m on m.id = s.payment_method_id
      left join (
        select sale_id, sum(amount)::int as collected from collections group by sale_id
      ) c on c.sale_id = s.id
+     left join (
+       select sale_id, sum(insurer_amount)::int as covered from sale_coverages group by sale_id
+     ) cov on cov.sale_id = s.id
      where m.settles_immediately = false
-       and s.total > coalesce(c.collected, 0)
+       and s.total > coalesce(c.collected, 0) + coalesce(cov.covered, 0)
      order by s.created_at`,
   );
   return rows.map((row) => {
     const total = num(row.total);
     const collected = num(row.collected);
+    const covered = num(row.covered);
     return {
       id: num(row.id),
       receiptNumber: text(row.receipt_number),
@@ -276,7 +286,7 @@ export async function listOutstanding(): Promise<OutstandingSale[]> {
       customerName: text(row.customer_name),
       total,
       collected,
-      remaining: total - collected,
+      remaining: Math.max(0, total - collected - covered),
       createdAt: text(row.created_at),
     };
   });

@@ -20,7 +20,7 @@ const dateText = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a real expiry date
 
 export const drugInputSchema = z.object({
   name: z.string().trim().min(2, "Enter the drug name.").max(80),
-  genericName: optionalText(80),
+  genericName: z.string().trim().min(2, "Choose a generic group, or type a new one.").max(80),
   category: z.string().trim().min(2, "Enter a category.").max(40),
   categoryId: z.number().int().positive().nullable().optional(),
   subcategoryId: z.number().int().positive().nullable().optional(),
@@ -66,12 +66,19 @@ export const saleSchema = z.object({
   prescriptionId: z.number().int().positive().nullable().optional(),
 });
 
+const tenderLineSchema = z.object({
+  paymentMethodId: z.number().int().positive(),
+  amount: z.number().int().min(1).max(50_000_000),
+});
+
 export const basketSchema = z.object({
   customerName: optionalText(80),
   paymentMethodId: z.number().int().min(1, "Choose how the customer is paying."),
   patientId: z.number().int().positive().nullable().optional(),
+  memberNumber: optionalText(40),
   acknowledgeRisks: z.boolean().optional().default(false),
   lines: z.array(saleSchema.omit({ customerName: true, paymentMethodId: true, patientId: true, acknowledgeRisks: true })).min(1).max(20),
+  tenders: z.array(tenderLineSchema).max(4).optional(),
 });
 
 export const dispenseSchema = z.object({
@@ -278,6 +285,46 @@ export const registerSchema = z.object({
   phone: z.string().trim().min(7, "Enter a phone number.").max(24),
   email,
   password: z.string().min(8, "Use at least 8 characters.").max(80),
+});
+
+export const insurerSchema = z.object({
+  name: z.string().trim().min(2, "Enter the insurer.").max(80),
+  kind: z.enum(["rssb", "mmi", "mutuelle", "private"]),
+  phone: optionalText(40),
+  email: optionalText(80),
+  address: optionalText(160),
+  coverPercent: z.number().int().min(0).max(100),
+  period: z.enum(["month", "year", "prescription"]),
+  spendingLimit: z.number().int().min(0).max(500_000_000).nullable().optional(),
+  limitAction: z.enum(["warn", "block"]),
+  stacks: z.boolean().optional().default(false),
+  formularyMode: z.enum(["list", "open"]),
+  coverOtc: z.boolean().optional().default(false),
+  notes: optionalText(500),
+  active: z.boolean().optional().default(true),
+});
+
+export const coverageRuleSchema = z.object({
+  scope: z.enum(["category", "generic", "brand"]),
+  name: z.string().trim().min(2, "Enter the category, generic, or brand.").max(80),
+  covered: z.boolean(),
+  coverPercent: z.number().int().min(0).max(100).nullable().optional(),
+});
+
+export const policySchema = z.object({
+  insurerId: z.number().int().positive(),
+  memberNumber: z.string().trim().min(2, "Enter the member number.").max(40),
+  isPrimary: z.boolean().optional().default(true),
+});
+
+export const coverageQuoteSchema = z.object({
+  memberNumber: optionalText(40),
+  acknowledgeRisks: z.boolean().optional().default(false),
+  lines: z.array(z.object({
+    drugId: z.number().int().positive(),
+    quantity: z.number().int().min(1).max(5_000),
+    soldAs: z.enum(["base", "strip", "pack"]).optional().default("base"),
+  })).min(1).max(20),
 });
 
 export function parseBody<T>(schema: z.ZodType<T>, data: unknown): T {

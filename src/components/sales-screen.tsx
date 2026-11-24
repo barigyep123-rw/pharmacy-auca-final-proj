@@ -4,113 +4,114 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { wholeNumber } from "@/lib/catalog";
-import { formatRwf, formatWhen } from "@/lib/format";
-import { baseCount, describeStock, unitLabel } from "@/lib/units";
-import type { Drug, PaymentReceipt, Sale } from "@/lib/types";
+import { formatRwf } from "@/lib/format";
+import { baseCount, describeStock } from "@/lib/units";
+import type { Drug, PaymentReceipt } from "@/lib/types";
 import { ReceiptDialog } from "./receipt-slip";
 import { useStaff } from "./session";
 import { Button } from "./ui/button";
-import { Card } from "./ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { LoadingBlock, Notice, PageHeader } from "./ui/chrome";
+import { LoadingBlock, Notice } from "./ui/chrome";
 
 type Tender = { id: number; name: string; settlesImmediately: boolean };
+type SoldAs = "base" | "strip" | "pack";
+type Brand = { id: number; name: string; manufacturer: string; quantity: number };
 
-function slipFromSale(sale: Sale): PaymentReceipt {
-  return {
-    numbers: sale.receiptNumber ? [sale.receiptNumber] : [],
-    issuedAt: sale.createdAt,
-    customerName: sale.customerName,
-    sellerName: sale.sellerName,
-    paymentMethodName: sale.paymentMethodName,
-    settlesImmediately: sale.settlesImmediately,
-    lines: [
-      {
-        name: sale.drugName,
-        strength: sale.strength,
-        quantity: sale.quantity,
-        unitPrice: sale.unitPrice,
-        total: sale.total,
-        directions: sale.directions,
-        lotLabel: sale.lotLabel,
-      },
-    ],
-    fiscalNote: sale.fiscalCode
-      ? `Local fiscal mark ${sale.fiscalCode}. Not an RRA-signed EBM receipt.`
-      : undefined,
-  };
+type CartLine = {
+  key: string;
+  drugId: number;
+  name: string;
+  strength: string;
+  soldAs: SoldAs;
+  unitName: string;
+  quantity: number;
+  price: number;
+};
+
+function charged(drug: Drug, soldAs: SoldAs, count: number) {
+  const perPack = Math.max(1, drug.unitsPerPack);
+  const perStrip = Math.max(1, drug.stripSize || 10);
+  let unit = drug.unitPrice;
+  let each = drug.unitPrice;
+  let base = count;
+  if (soldAs === "pack") {
+    const pack = drug.packPrice > 0 ? drug.packPrice : unit * perPack;
+    unit = Math.max(0, Math.round(pack / perPack));
+    base = count * perPack;
+    each = drug.packPrice > 0 ? drug.packPrice : unit * perPack;
+  } else if (soldAs === "strip") {
+    const strip = drug.stripPrice > 0 ? drug.stripPrice : unit * perStrip;
+    unit = Math.max(0, Math.round(strip / perStrip));
+    base = count * perStrip;
+    each = drug.stripPrice > 0 ? drug.stripPrice : unit * perStrip;
+  }
+  return { each, total: unit * base, base };
 }
 
-function party(sale: Sale) {
-  if (sale.prescriptionId) return `Prescription #${sale.prescriptionId}`;
-  return sale.customerName || "Walk-in";
+function unitName(drug: Drug, soldAs: SoldAs) {
+  if (soldAs === "pack") return drug.packUnit || "box";
+  if (soldAs === "strip") return "strip";
+  return drug.baseUnit || "tablet";
 }
 
 export function SalesScreen({ today }: { today: string }) {
   const staff = useStaff();
   const dispenser = staff?.role === "dispenser";
   const [drugs, setDrugs] = useState<Drug[] | null>(null);
-  const [sales, setSales] = useState<Sale[] | null>(null);
+  const [methods, setMethods] = useState<Tender[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
-  const [dose, setDose] = useState("");
-  const [frequency, setFrequency] = useState("");
-  const [duration, setDuration] = useState("");
-  const [brands, setBrands] = useState<Array<{ id: number; name: string; manufacturer: string; quantity: number }>>([]);
-  const [drugId, setDrugId] = useState<number | null>(null);
-  const [quantity, setQuantity] = useState("1");
-  const [soldAs, setSoldAs] = useState<"base" | "strip" | "pack">("base");
+  const [generic, setGeneric] = useState("All");
+  const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState("");
-  const [methods, setMethods] = useState<Tender[]>([]);
-  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Drug | null>(null);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [soldAs, setSoldAs] = useState<SoldAs>("base");
+  const [quantity, setQuantity] = useState("1");
+  const [popupError, setPopupError] = useState<string | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [methodId, setMethodId] = useState<number | null>(null);
+  const [amountPaid, setAmountPaid] = useState("");
+  const [split, setSplit] = useState(false);
+  const [secondMethodId, setSecondMethodId] = useState<number | null>(null);
+  const [secondAmount, setSecondAmount] = useState("");
   const [pending, setPending] = useState(false);
+  const [acknowledge, setAcknowledge] = useState(false);
   const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
-
-  useEffect(() => {
-    if (!drugId) return;
-    let cancel = false;
-    api<{ brands: Array<{ id: number; name: string; manufacturer: string; quantity: number }> }>(`/api/drugs/${drugId}/brands`)
-      .then((result) => {
-        if (!cancel) setBrands(result.brands);
-      })
-      .catch(() => {
-        if (!cancel) setBrands([]);
-      });
-    return () => {
-      cancel = true;
-    };
-  }, [drugId]);
+  const [memberNumber, setMemberNumber] = useState("");
+  const [cover, setCover] = useState<{
+    patientName: string;
+    patientPayable: number;
+    insurerAmount: number;
+    warnings: string[];
+  } | null>(null);
+  const [coverError, setCoverError] = useState<string | null>(null);
 
   async function load() {
-    const [drugResult, saleResult, methodResult] = await Promise.all([
+    const [drugResult, methodResult] = await Promise.all([
       api<{ drugs: Drug[] }>("/api/drugs"),
-      api<{ sales: Sale[] }>("/api/sales"),
       api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
     ]);
     setDrugs(drugResult.drugs);
-    setSales(saleResult.sales);
     setMethods(methodResult.methods);
-    setPaymentMethodId((current) => current ?? methodResult.methods[0]?.id ?? null);
   }
 
   useEffect(() => {
     let cancel = false;
     Promise.all([
       api<{ drugs: Drug[] }>("/api/drugs"),
-      api<{ sales: Sale[] }>("/api/sales"),
       api<{ methods: Tender[] }>("/api/payment-methods?active=1"),
     ])
-      .then(([drugResult, saleResult, methodResult]) => {
+      .then(([drugResult, methodResult]) => {
         if (cancel) return;
         setDrugs(drugResult.drugs);
-        setSales(saleResult.sales);
         setMethods(methodResult.methods);
-        setPaymentMethodId((current) => current ?? methodResult.methods[0]?.id ?? null);
       })
       .catch((caught: unknown) => {
-        if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load sales.");
+        if (!cancel) setError(caught instanceof Error ? caught.message : "Could not load the counter.");
       });
     return () => {
       cancel = true;
@@ -121,276 +122,467 @@ export function SalesScreen({ today }: { today: string }) {
     () => ["All", ...Array.from(new Set((drugs ?? []).map((drug) => drug.category).filter(Boolean))).sort()],
     [drugs],
   );
+  const generics = useMemo(
+    () => ["All", ...Array.from(new Set((drugs ?? []).map((drug) => drug.genericName).filter((name) => name.trim().length >= 2))).sort()],
+    [drugs],
+  );
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (drugs ?? []).filter((drug) => {
       if (dispenser && (drug.quantity < 1 || drug.expired)) return false;
       if (category !== "All" && drug.category !== category) return false;
+      if (generic !== "All" && drug.genericName.toLowerCase() !== generic.toLowerCase()) return false;
       if (!needle) return true;
-      return `${drug.name} ${drug.genericName} ${drug.sku} ${drug.barcode} ${drug.brandName}`.toLowerCase().includes(needle);
+      return `${drug.name} ${drug.genericName} ${drug.sku} ${drug.barcode} ${drug.brandName} ${drug.strength}`.toLowerCase().includes(needle);
     });
-  }, [drugs, query, category, dispenser]);
-  const selected = drugs?.find((drug) => drug.id === drugId) ?? null;
-  const qty = wholeNumber(quantity);
-  const baseQty = selected && qty ? baseCount(qty, soldAs, selected.unitsPerPack, selected.stripSize) : 0;
-  const lineTotal = selected && qty
-    ? soldAs === "pack" && selected.packPrice
-      ? selected.packPrice * qty
-      : soldAs === "strip" && selected.stripPrice
-        ? selected.stripPrice * qty
-        : selected.unitPrice * baseQty
-    : 0;
+  }, [drugs, query, category, generic, dispenser]);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setFormError(null);
-    if (!selected) {
-      setFormError("Choose a drug from the shelf.");
+  const total = cart.reduce((sum, line) => sum + line.price, 0);
+  const cardReady = memberNumber.trim().length >= 2 && cart.length > 0;
+  const activeCover = cardReady ? cover : null;
+  const activeCoverError = cardReady ? coverError : null;
+  const dueFromPatient = activeCover?.patientPayable ?? total;
+
+  useEffect(() => {
+    const member = memberNumber.trim();
+    if (member.length < 2 || cart.length === 0) return;
+    let cancel = false;
+    const handle = window.setTimeout(() => {
+      api<{ quote: { patientName: string; patientPayable: number; insurerAmount: number; warnings: string[] } | null }>("/api/insurance/quote", {
+        method: "POST",
+        body: JSON.stringify({
+          memberNumber: member,
+          acknowledgeRisks: acknowledge,
+          lines: cart.map((line) => ({ drugId: line.drugId, quantity: line.quantity, soldAs: line.soldAs })),
+        }),
+      })
+        .then((result) => {
+          if (cancel) return;
+          setCover(result.quote);
+          setCoverError(null);
+        })
+        .catch((caught: unknown) => {
+          if (cancel) return;
+          setCover(null);
+          setCoverError(caught instanceof Error ? caught.message : "Could not verify the card.");
+        });
+    }, 250);
+    return () => {
+      cancel = true;
+      window.clearTimeout(handle);
+    };
+  }, [memberNumber, cart, acknowledge]);
+  const credit = methods.find((method) => !method.settlesImmediately) ?? null;
+  const nowMethods = methods.filter((method) => method.settlesImmediately);
+  const qty = wholeNumber(quantity) ?? 0;
+  const quote = picked && qty > 0 ? charged(picked, soldAs, qty) : null;
+
+  async function openProduct(drug: Drug) {
+    setPicked(drug);
+    setSoldAs("base");
+    setQuantity("1");
+    setPopupError(null);
+    setBrands([]);
+    try {
+      const result = await api<{ brands: Brand[] }>(`/api/drugs/${drug.id}/brands`);
+      setBrands(result.brands);
+    } catch {
+      setBrands([]);
+    }
+  }
+
+  function chooseBrand(brand: Brand) {
+    const next = drugs?.find((drug) => drug.id === brand.id);
+    if (next) setPicked(next);
+  }
+
+  function addToCart() {
+    if (!picked || !quote || qty < 1) {
+      setPopupError("Enter a quantity of at least 1.");
       return;
     }
-    if (!qty || qty < 1) {
-      setFormError("Enter a quantity of at least 1.");
+    const reserved = cart
+      .filter((line) => line.drugId === picked.id)
+      .reduce((sum, line) => sum + baseCount(line.quantity, line.soldAs, picked.unitsPerPack, picked.stripSize), 0);
+    if (reserved + quote.base > picked.quantity) {
+      setPopupError(`Only ${describeStock(picked.quantity, picked.unitsPerPack, picked.baseUnit, picked.packUnit)} can leave the shelf.`);
       return;
     }
-    if (!paymentMethodId) {
-      setFormError("Choose how the customer is paying.");
+    const name = unitName(picked, soldAs);
+    setCart((current) => {
+      const existing = current.find((line) => line.drugId === picked.id && line.soldAs === soldAs);
+      if (!existing) {
+        return [
+          ...current,
+          {
+            key: `${picked.id}-${soldAs}`,
+            drugId: picked.id,
+            name: picked.brandName || picked.name,
+            strength: picked.strength,
+            soldAs,
+            unitName: name,
+            quantity: qty,
+            price: quote.total,
+          },
+        ];
+      }
+      const nextQty = existing.quantity + qty;
+      return current.map((line) =>
+        line.key === existing.key
+          ? { ...line, quantity: nextQty, price: charged(picked, soldAs, nextQty).total }
+          : line,
+      );
+    });
+    setPicked(null);
+  }
+
+  function openPay() {
+    const first = nowMethods[0]?.id ?? null;
+    const second = nowMethods.find((method) => method.id !== first)?.id ?? first;
+    setMethodId(first);
+    setSecondMethodId(second);
+    setAmountPaid(String(dueFromPatient));
+    setSecondAmount("");
+    setSplit(false);
+    setPayError(null);
+    setPayOpen(true);
+  }
+
+  async function submit(
+    kind: "bill" | "sale",
+    tenders?: Array<{ paymentMethodId: number; amount: number }>,
+    risks = acknowledge,
+  ) {
+    if (cart.length === 0) return;
+    const onAccount = kind === "bill" || (tenders?.length ?? 0) > 0;
+    const method = onAccount ? credit : nowMethods.find((item) => item.id === methodId) ?? nowMethods[0];
+    if (!method) {
+      const message = onAccount
+        ? "Add a credit method in Settings before billing later or splitting a payment."
+        : "Choose how the customer is paying.";
+      setPayError(message);
+      if (kind === "bill") toast.error(message);
+      return;
+    }
+    const named = customerName.trim() || activeCover?.patientName || "";
+    if (kind === "bill" && named.length < 2) {
+      toast.error("Put the customer name on a bill that will be paid later.");
       return;
     }
     setPending(true);
     try {
-      const result = await api<{ sale: { receipt: PaymentReceipt } }>("/api/sales", {
+      const result = await api<{ basket: { receipt: PaymentReceipt } }>("/api/sales/basket", {
         method: "POST",
         body: JSON.stringify({
-          drugId: selected.id,
-          quantity: qty,
-          soldAs,
-          customerName,
-          paymentMethodId,
-          dose,
-          frequency,
-          duration,
-          directions: [dose, frequency, duration].filter(Boolean).join(" · "),
+          customerName: named,
+          memberNumber: cardReady ? memberNumber.trim() : "",
+          paymentMethodId: method.id,
+          acknowledgeRisks: risks,
+          lines: cart.map((line) => ({ drugId: line.drugId, quantity: line.quantity, soldAs: line.soldAs })),
+          ...(tenders && tenders.length > 0 ? { tenders } : {}),
         }),
       });
-      setReceipt(result.sale.receipt);
-      toast.success(`${baseQty} ${selected.baseUnit}s of ${selected.name} recorded. Stock updated.`);
-      setQuantity("1");
+      setReceipt(result.basket.receipt);
+      setCart([]);
       setCustomerName("");
+      setMemberNumber("");
+      setAcknowledge(false);
+      setPayOpen(false);
+      toast.success(kind === "bill" ? "Bill saved. Stock is already off the shelf." : "Sale recorded.");
       await load();
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : "Could not record the sale.");
+      const message = caught instanceof Error ? caught.message : "Could not record that.";
+      if (kind === "sale") setPayError(message);
+      else toast.error(message);
     } finally {
       setPending(false);
     }
   }
 
-  if ((!drugs || !sales) && !error) return <LoadingBlock label="Loading the counter…" />;
-  if (!drugs || !sales) return <Notice>{error}</Notice>;
+  function takePayment(risks = acknowledge) {
+    const paid = wholeNumber(amountPaid) ?? 0;
+    const second = split ? wholeNumber(secondAmount) ?? 0 : 0;
+    if (!methodId) {
+      setPayError("Choose how the customer is paying.");
+      return;
+    }
+    if (paid < 1 && dueFromPatient > 0) {
+      setPayError("Enter the amount paid.");
+      return;
+    }
+    if (paid > dueFromPatient) {
+      setPayError(`After insurance the patient owes ${formatRwf(dueFromPatient)}.`);
+      return;
+    }
+    if (split && (!secondMethodId || secondMethodId === methodId)) {
+      setPayError("Choose a second, different way to pay.");
+      return;
+    }
+    if (split && (second < 1 || second >= paid)) {
+      setPayError("The second amount has to be part of the amount paid.");
+      return;
+    }
+    if (!split && paid === dueFromPatient) {
+      void submit("sale", undefined, risks);
+      return;
+    }
+    const tenders = split
+      ? [
+          { paymentMethodId: methodId, amount: paid - second },
+          { paymentMethodId: secondMethodId as number, amount: second },
+        ]
+      : [{ paymentMethodId: methodId, amount: paid }];
+    void submit("sale", tenders, risks);
+  }
+
+  if (!drugs && !error) return <LoadingBlock label="Opening the counter…" />;
+  if (!drugs) return <Notice>{error}</Notice>;
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Counter"
-        title="Sales"
-        lede="A sale takes the quantity off the shelf immediately. Expired stock stays put."
-      />
-      <div className="grid items-start gap-4 min-[1360px]:grid-cols-[22rem_minmax(0,1fr)]">
-        <Card className="p-4 min-[1360px]:sticky min-[1360px]:top-6">
-          <form className="space-y-4" onSubmit={(event) => void submit(event)}>
-            <h2 className="font-serif text-xl">Record a sale</h2>
-            {formError ? <Notice>{formError}</Notice> : null}
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Find a drug</span>
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Name or SKU"
-              />
-            </label>
-            <div className="flex flex-wrap gap-1">
+    <div className="flex h-[calc(100dvh-6.5rem)] flex-col md:h-[calc(100dvh-4rem)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+        <section className="flex min-h-0 flex-col rounded-2xl border border-line bg-card">
+          <div className="border-b border-line px-4 py-3">
+            <h2 className="font-serif text-xl">Cart</h2>
+            <Input
+              className="mt-2"
+              value={customerName}
+              onChange={(event) => setCustomerName(event.target.value)}
+              placeholder="Customer, if this is a bill"
+            />
+            <Input
+              className="mt-2"
+              value={memberNumber}
+              onChange={(event) => setMemberNumber(event.target.value)}
+              placeholder="Insurance member number"
+            />
+            {activeCoverError ? <p className="mt-2 text-xs text-clay">{activeCoverError}</p> : null}
+            {activeCover ? (
+              <p className="mt-2 text-xs text-muted">
+                {activeCover.patientName}: patient {formatRwf(activeCover.patientPayable)}, insurer {formatRwf(activeCover.insurerAmount)}.
+                {activeCover.warnings[0] ? ` ${activeCover.warnings[0]}` : ""}
+              </p>
+            ) : null}
+            {activeCoverError && !acknowledge ? (
+              <button type="button" className="mt-1 text-xs text-pine hover:underline" onClick={() => setAcknowledge(true)}>
+                Accept and let the patient pay the rest
+              </button>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {cart.length === 0 ? (
+              <p className="text-sm text-muted">Nothing selected yet. Tap a product on the right.</p>
+            ) : (
+              <ul className="space-y-3">
+                {cart.map((line) => (
+                  <li key={line.key} className="flex items-start justify-between gap-3 text-sm">
+                    <div>
+                      <p className="font-medium">{line.name}</p>
+                      <p className="text-muted">
+                        {line.quantity} {line.unitName}
+                        {line.strength ? ` · ${line.strength}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="tabular-nums">{formatRwf(line.price)}</p>
+                      <button
+                        type="button"
+                        className="text-xs text-clay hover:underline"
+                        onClick={() => setCart((current) => current.filter((item) => item.key !== line.key))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        <section className="flex min-h-40 flex-col rounded-2xl border border-line bg-card md:min-h-0">
+          <div className="space-y-2 border-b border-line px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-serif text-xl">Products</h2>
+              {dispenser ? <span className="text-xs text-muted">Sellable stock</span> : null}
+            </div>
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a generic, brand, or barcode" />
+            <div className="flex gap-1 overflow-x-auto pb-1">
+              {generics.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${generic === item ? "bg-brass text-pine-deep" : "bg-paper text-muted"}`}
+                  onClick={() => setGeneric(item)}
+                >
+                  {item === "All" ? "All generics" : item}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 overflow-x-auto pb-1">
               {categories.map((item) => (
                 <button
                   key={item}
                   type="button"
-                  className={`rounded-full px-2.5 py-1 text-xs ${category === item ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${category === item ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
                   onClick={() => setCategory(item)}
                 >
                   {item}
                 </button>
               ))}
             </div>
-            <ul className="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto">
-              {matches.length === 0 ? <li className="col-span-2 text-sm text-muted">Nothing matches that search.</li> : null}
-              {matches.map((drug) => {
-                const blocked = drug.expired || drug.quantity === 0;
-                return (
-                  <li key={drug.id}>
-                    <button
-                      type="button"
-                      disabled={blocked}
-                      onClick={() => setDrugId(drug.id)}
-                      className={`flex min-h-20 w-full flex-col justify-between rounded-xl px-2 py-2 text-left text-sm disabled:opacity-50 ${
-                        drug.id === drugId ? "bg-pine-soft" : "bg-paper hover:bg-card"
-                      }`}
-                    >
-                      <span>
-                        {drug.name} <span className="text-muted">{drug.strength}</span>
-                      </span>
-                      <span className="text-xs text-muted">
-                        {drug.expired ? "Expired" : `${describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}`}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {(drugId ? brands : []).length > 1 ? (
-              <div className="flex flex-wrap gap-1">
-                {brands.map((brand) => (
+          </div>
+          <ul className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-2 overflow-y-auto p-3 xl:grid-cols-3">
+            {matches.length === 0 ? <li className="col-span-2 text-sm text-muted">Nothing on this shelf matches.</li> : null}
+            {matches.map((drug) => {
+              const blocked = drug.expired || drug.quantity === 0 || drug.rxOnly;
+              return (
+                <li key={drug.id}>
                   <button
-                    key={brand.id}
                     type="button"
-                    className={`rounded-full px-2 py-1 text-xs ${brand.id === drugId ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
-                    onClick={() => setDrugId(brand.id)}
+                    disabled={blocked}
+                    onClick={() => void openProduct(drug)}
+                    className="flex h-full min-h-24 w-full flex-col justify-between rounded-xl bg-paper px-3 py-2 text-left disabled:opacity-45"
                   >
-                    {brand.name}{brand.manufacturer ? ` · ${brand.manufacturer}` : ""} ({brand.quantity})
+                    <span>
+                      <span className="block text-xs uppercase tracking-wide text-muted">{drug.genericName || "No generic"}</span>
+                      <span className="block font-medium">{drug.brandName || drug.name}</span>
+                      <span className="text-xs text-muted">{[drug.strength, drug.form].filter(Boolean).join(" ")}</span>
+                    </span>
+                    <span className="text-xs text-muted">
+                      {formatRwf(drug.unitPrice)}
+                      {drug.rxOnly ? " · Script" : drug.expired || drug.expiryDate < today ? " · Expired" : ` · ${describeStock(drug.quantity, drug.unitsPerPack, drug.baseUnit, drug.packUnit)}`}
+                    </span>
                   </button>
-                ))}
-              </div>
-            ) : null}
-            {selected ? (
-              <p className="text-sm text-muted">
-                {selected.name}: {describeStock(selected.quantity, selected.unitsPerPack, selected.baseUnit, selected.packUnit)} on hand, expires {selected.expiryDate}
-                {selected.expiryDate < today ? " (expired)" : ""}.
-              </p>
-            ) : null}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 text-sm ${soldAs === "base" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
-                onClick={() => setSoldAs("base")}
-              >
-                {selected?.baseUnit ?? "Base unit"}
-              </button>
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 text-sm ${soldAs === "pack" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
-                onClick={() => setSoldAs("pack")}
-              >
-                {selected?.packUnit ?? "Pack"}
-                {selected?.packPrice ? ` · ${formatRwf(selected.packPrice)}` : ""}
-              </button>
-              <button
-                type="button"
-                className={`rounded-full px-3 py-1 text-sm ${soldAs === "strip" ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
-                onClick={() => setSoldAs("strip")}
-              >
-                Strip{selected?.stripPrice ? ` · ${formatRwf(selected.stripPrice)}` : ""}
-              </button>
-            </div>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Directions</span>
-              <Input value={dose} onChange={(event) => setDose(event.target.value)} placeholder="Dose, optional" />
-              <Input value={frequency} onChange={(event) => setFrequency(event.target.value)} placeholder="How often" />
-              <Input value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="For how long" />
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Quantity</span>
-              <Input
-                inputMode="numeric"
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
-              />
-              {selected && qty ? (
-                <span className="block text-xs text-muted">
-                  Takes {unitLabel(baseQty, selected.baseUnit)} off the shelf
-                  {soldAs === "pack" ? ` (${qty} × ${selected.unitsPerPack})` : ""}. Loose {selected.baseUnit}s stay as they are.
-                </span>
-              ) : null}
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Payment</span>
-              <select
-                className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
-                value={paymentMethodId ?? ""}
-                onChange={(event) => setPaymentMethodId(Number(event.target.value))}
-              >
-                {methods.map((method) => (
-                  <option key={method.id} value={method.id}>
-                    {method.name}{method.settlesImmediately ? "" : " · on account"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-1.5">
-              <span className="text-sm font-medium">Customer</span>
-              <Input
-                value={customerName}
-                onChange={(event) => setCustomerName(event.target.value)}
-                placeholder="Optional. Blank sales are walk-ins."
-              />
-            </label>
-            <div className="flex items-center justify-between">
-              <p className="font-serif text-2xl tabular-nums">{formatRwf(lineTotal)}</p>
-              <Button type="submit" disabled={pending || !selected}>
-                {pending ? "Saving…" : "Take payment"}
-              </Button>
-            </div>
-          </form>
-        </Card>
-
-        {dispenser ? (
-          <Card className="min-w-0 p-4">
-            <h2 className="font-serif text-xl">Sellable stock</h2>
-            <p className="mt-2 text-sm text-muted">Expired and empty lines stay off this counter. Reprint a receipt from Bills.</p>
-          </Card>
-        ) : null}
-        {dispenser ? null : <Card className="min-w-0 p-4">
-          <h2 className="mb-3 font-serif text-xl">History</h2>
-          {sales.length === 0 ? (
-            <p className="text-sm text-muted">No sales yet. The first one will land here and reduce stock.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="px-3 py-2 font-medium first:pl-0">When</th>
-                    <th className="px-3 py-2 font-medium">Drug</th>
-                    <th className="px-3 py-2 font-medium">For</th>
-                    <th className="px-3 py-2 font-medium">Sold by</th>
-                    <th className="px-3 py-2 font-medium">Payment</th>
-                    <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty</th>
-                    <th className="py-2 pl-3 text-right font-medium whitespace-nowrap">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sales.map((sale) => (
-                    <tr key={sale.id} className="border-t border-line">
-                      <td className="px-3 py-2.5 text-muted first:pl-0">{formatWhen(sale.createdAt)}</td>
-                      <td className="px-3 py-2.5">
-                        {sale.drugName} <span className="text-muted">{sale.strength}</span>
-                      </td>
-                      <td className="px-3 py-2.5">{party(sale)}</td>
-                      <td className="px-3 py-2.5">{sale.sellerName}</td>
-                      <td className="px-3 py-2.5">
-                        {sale.paymentMethodName || "—"}
-                        {sale.receiptNumber ? <span className="block text-xs text-muted">{sale.receiptNumber}</span> : null}
-                        {sale.receiptNumber ? (
-                          <button type="button" className="text-xs text-pine hover:underline" onClick={() => setReceipt(slipFromSale(sale))}>
-                            Print
-                          </button>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{sale.quantity}</td>
-                      <td className="py-2.5 pl-3 text-right tabular-nums whitespace-nowrap">{formatRwf(sale.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3">
+        <p className="font-serif text-2xl tabular-nums">{formatRwf(total)}</p>
+        <div className="flex gap-2">
+          <Button type="button" variant="quiet" disabled={pending || cart.length === 0} onClick={() => void submit("bill")}>
+            Create bill
+          </Button>
+          <Button type="button" disabled={pending || cart.length === 0} onClick={openPay}>
+            Make sale
+          </Button>
+        </div>
+      </div>
+
+      <Dialog open={picked !== null} onOpenChange={(open) => { if (!open) setPicked(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{picked?.brandName || picked?.name}</DialogTitle>
+            <DialogDescription>
+              {picked ? `${picked.genericName || "Brand"} ${picked.strength}`.trim() : ""}
+              {picked ? ` · ${describeStock(picked.quantity, picked.unitsPerPack, picked.baseUnit, picked.packUnit)} on hand` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {popupError ? <Notice>{popupError}</Notice> : null}
+          {brands.length > 1 ? (
+            <div className="mb-3 flex flex-wrap gap-1">
+              {brands.map((brand) => (
+                <button
+                  key={brand.id}
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-xs ${brand.id === picked?.id ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                  onClick={() => chooseBrand(brand)}
+                >
+                  {brand.name}{brand.manufacturer ? ` · ${brand.manufacturer}` : ""}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {(["base", "strip", "pack"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={`rounded-full px-3 py-1 text-sm ${soldAs === option ? "bg-pine text-paper-2" : "bg-paper text-muted"}`}
+                onClick={() => setSoldAs(option)}
+              >
+                {option === "base" ? picked?.baseUnit || "Tablet" : option === "strip" ? "Strip" : `Full ${picked?.packUnit || "box"}`}
+                {picked && qty > 0 ? ` · ${formatRwf(charged(picked, option, 1).each)}` : ""}
+              </button>
+            ))}
+          </div>
+          <label className="mt-3 block space-y-1.5">
+            <span className="text-sm font-medium">Quantity</span>
+            <Input inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+          </label>
+          <p className="mt-3 font-serif text-2xl tabular-nums">{quote ? formatRwf(quote.total) : formatRwf(0)}</p>
+          <DialogFooter>
+            <Button type="button" onClick={addToCart}>Add to cart</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={payOpen} onOpenChange={setPayOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Take payment</DialogTitle>
+            <DialogDescription>
+              {activeCover
+                ? `The shelf price is ${formatRwf(total)}. The patient owes ${formatRwf(activeCover.patientPayable)} after ${formatRwf(activeCover.insurerAmount)} from insurance.`
+                : `The bill is ${formatRwf(total)}. A smaller amount leaves the rest to be paid later.`}
+            </DialogDescription>
+          </DialogHeader>
+          {payError ? <Notice>{payError}</Notice> : null}
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">Mode of payment</span>
+            <select
+              className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
+              value={methodId ?? ""}
+              onChange={(event) => setMethodId(Number(event.target.value))}
+            >
+              {nowMethods.map((method) => (
+                <option key={method.id} value={method.id}>{method.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-3 block space-y-1.5">
+            <span className="text-sm font-medium">Amount paid now</span>
+            <Input inputMode="numeric" value={amountPaid} onChange={(event) => setAmountPaid(event.target.value)} />
+          </label>
+          <label className="mt-3 flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={split} onChange={(event) => setSplit(event.target.checked)} />
+            Split across payment modes
+          </label>
+          {split ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Second mode</span>
+                <select
+                  className="h-10 w-full rounded-lg border border-line bg-paper-2 px-2 text-sm"
+                  value={secondMethodId ?? ""}
+                  onChange={(event) => setSecondMethodId(Number(event.target.value))}
+                >
+                  {nowMethods.map((method) => (
+                    <option key={method.id} value={method.id}>{method.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-medium">Second amount</span>
+                <Input inputMode="numeric" value={secondAmount} onChange={(event) => setSecondAmount(event.target.value)} />
+              </label>
+            </div>
+          ) : null}
+          {payError && !acknowledge ? (
+            <Button type="button" variant="quiet" className="mt-3" onClick={() => { setAcknowledge(true); takePayment(true); }}>
+              Acknowledge the warning and try again
+            </Button>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" disabled={pending} onClick={() => takePayment()}>{pending ? "Saving…" : "Make sale"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} />
     </div>
   );

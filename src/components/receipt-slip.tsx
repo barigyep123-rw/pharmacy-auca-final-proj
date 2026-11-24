@@ -126,7 +126,15 @@ export function printReceipt(node: HTMLElement) {
   }, 150);
 }
 
-export function ReceiptDialog({ receipt, onClose }: { receipt: PaymentReceipt | null; onClose: () => void }) {
+export function ReceiptDialog({
+  receipt,
+  onClose,
+  preview = false,
+}: {
+  receipt: PaymentReceipt | null;
+  onClose: () => void;
+  preview?: boolean;
+}) {
   const paperRef = useRef<HTMLElement>(null);
   const [shop, setShop] = useState<Shop>(fallbackShop);
 
@@ -158,22 +166,28 @@ export function ReceiptDialog({ receipt, onClose }: { receipt: PaymentReceipt | 
         {receipt ? (
           <>
             <DialogHeader>
-              <DialogTitle>Receipt</DialogTitle>
-              <DialogDescription>An 80mm slip. Choose that paper width in the print dialog.</DialogDescription>
+              <DialogTitle>{preview ? "Reprint preview" : "Receipt"}</DialogTitle>
+              <DialogDescription>
+                {preview
+                  ? "This is how the 80mm slip will look. Nothing is sent to the printer."
+                  : "An 80mm slip. Choose that paper width in the print dialog."}
+              </DialogDescription>
             </DialogHeader>
             <div className="flex justify-center rounded-xl bg-paper py-4">
               <ReceiptPaper receipt={receipt} shop={shop} paperRef={paperRef} />
             </div>
             <DialogFooter>
               <Button type="button" variant="quiet" onClick={onClose}>Close</Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  if (paperRef.current) printReceipt(paperRef.current);
-                }}
-              >
-                Print receipt
-              </Button>
+              {preview ? null : (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (paperRef.current) printReceipt(paperRef.current);
+                  }}
+                >
+                  Print receipt
+                </Button>
+              )}
             </DialogFooter>
           </>
         ) : null}

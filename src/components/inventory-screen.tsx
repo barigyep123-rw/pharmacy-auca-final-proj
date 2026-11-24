@@ -246,6 +246,11 @@ export function InventoryScreen() {
           const unitPrice = wholeNumber(draft.unitPrice);
           const reorderLevel = wholeNumber(draft.reorderLevel);
           const openingQuantity = wholeNumber(draft.openingQuantity);
+          if (draft.genericName.trim().length < 2) {
+            setFormError("Choose a generic group, or type a new one.");
+            setPending(false);
+            return;
+          }
           if (unitPrice == null || reorderLevel == null || (editing === null && openingQuantity == null)) {
             setFormError("Price, reorder level, and opening quantity need whole numbers.");
             setPending(false);
@@ -459,10 +464,26 @@ function DrugDialog({
   onSubmit: (draft: DrugDraft) => void;
 }) {
   const [draft, setDraft] = useState<DrugDraft>(() => (drug ? draftFromDrug(drug) : emptyDrug(defaultReorder)));
+  const [generics, setGenerics] = useState<string[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const existingPhoto = drug?.hasPhoto && !draft.clearPhoto ? `/api/drugs/${drug.id}/photo` : "";
   const preview = draft.photoData || existingPhoto;
+
+  useEffect(() => {
+    let cancel = false;
+    api<{ generics: string[] }>("/api/generics")
+      .then((result) => {
+        if (!cancel) setGenerics(result.generics);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  const typedGeneric = draft.genericName.trim();
+  const knownGeneric = generics.some((name) => name.toLowerCase() === typedGeneric.toLowerCase());
 
   useEffect(() => {
     if (!drug) return;
@@ -548,9 +569,25 @@ function DrugDialog({
             <span className="text-sm font-medium">Name</span>
             <Input value={draft.name} onChange={(event) => set("name", event.target.value)} required />
           </label>
-          <label className="space-y-1.5">
-            <span className="text-sm font-medium">Generic</span>
-            <Input value={draft.genericName} onChange={(event) => set("genericName", event.target.value)} placeholder="Links strengths and brands" />
+          <label className="space-y-1.5 sm:col-span-2">
+            <span className="text-sm font-medium">Generic group</span>
+            <Input
+              list="generic-groups"
+              value={draft.genericName}
+              onChange={(event) => set("genericName", event.target.value)}
+              placeholder="Paracetamol"
+              required
+            />
+            <datalist id="generic-groups">
+              {generics.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+            <span className="block text-xs text-muted">
+              {typedGeneric.length >= 2 && !knownGeneric
+                ? `${typedGeneric} will be added as a new generic group when you save.`
+                : "Required. Pick a group such as paracetamol, or type a new one."}
+            </span>
           </label>
           <label className="space-y-1.5">
             <span className="text-sm font-medium">Manufacturer</span>

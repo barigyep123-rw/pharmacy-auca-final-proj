@@ -6,11 +6,13 @@ import { decodePhoto, photoBytes } from "./photo";
 import { stampSale } from "./settings";
 import { ensureSupplier } from "./suppliers";
 import { addLot, consumeFefo, lotLabel } from "./lots";
+import { coverageNote, persistCoverage, previewLineTotals, quoteCoverage } from "./insurance";
 import { ensureGenericVariant, fiscalMark, resolveCategory, safetyWarnings } from "./shop-ops";
 import { sql, withTransaction } from "./db";
 import { ApiError, isUniqueViolation } from "./errors";
 import type { QueryFn } from "./query";
 import { addDays, kigaliToday } from "./time";
+import { formatRwf } from "./format";
 import type {
   DashboardData,
   Drug,
@@ -247,8 +249,15 @@ export async function getPrescriptionPhoto(id: number): Promise<{ bytes: Uint8Ar
   return { bytes: photoBytes(row.photo), type: text(row.photo_type) || "image/jpeg" };
 }
 
+function requireGeneric(name: string | undefined) {
+  const cleaned = (name ?? "").trim().replace(/\s+/g, " ");
+  if (cleaned.length < 2) throw new ApiError(400, "Choose a generic group, or type a new one.");
+  return cleaned;
+}
+
 export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
   assertAccess(user.role, "inventory");
+  const genericName = requireGeneric(input.genericName);
   const photo = storedPhoto(input.photo);
   try {
     const [row] = await sql<{ id: number }>(
@@ -260,7 +269,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
       returning id`,
       [
         input.name,
-        input.genericName,
+        genericName,
         input.category,
         input.form,
         input.strength,
@@ -284,7 +293,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
       subcategoryId: input.subcategoryId,
     });
     const grouped = await ensureGenericVariant(sql, {
-      genericName: input.genericName ?? "",
+      genericName,
       strength: input.strength ?? "",
       form: input.form,
     });
@@ -335,6 +344,7 @@ export async function createDrug(user: Staff, input: DrugInput): Promise<Drug> {
 
 export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput): Promise<Drug> {
   assertAccess(user.role, "inventory");
+  const genericName = requireGeneric(input.genericName);
   try {
     const [row] = await sql<{ id: number }>(
       `update drugs set
@@ -349,7 +359,7 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
        returning id`,
       [
         input.name,
-        input.genericName,
+        genericName,
         input.category,
         input.form,
         input.strength,
@@ -372,7 +382,7 @@ export async function updateDrug(user: Staff, id: number, input: DrugUpdateInput
       subcategoryId: input.subcategoryId,
     });
     const grouped = await ensureGenericVariant(sql, {
-      genericName: input.genericName ?? "",
+      genericName,
       strength: input.strength ?? "",
       form: input.form,
     });
@@ -440,6 +450,121 @@ export async function deleteDrug(user: Staff, id: number) {
     entityId: id,
     summary: `Removed ${named ? `${text(named.name)} (${text(named.sku)})` : "a drug"} from the catalog.`,
   });
+}
+
+export type BillLine = {
+  name: string;
+  strength: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  directions: string;
+  lotLabel: string;
+};
+
+export type BillPayment = { method: string; amount: number };
+
+export type Bill = {
+  key: string;
+  createdAt: string;
+  customerName: string;
+  sellerName: string;
+  receiptNumbers: string[];
+  lines: BillLine[];
+  payments: BillPayment[];
+  total: number;
+  balance: number;
+  fiscalNote: string;
+};
+
+export async function listBills(): Promise<Bill[]> {
+  const rows = await sql(
+    `select s.id, s.basket_id, s.quantity, s.unit_price, s.total, s.customer_name, s.created_at,
+            s.receipt_number, s.directions, s.lot_label, s.fiscal_code,
+            d.name as drug_name, d.strength, u.name as seller_name,
+            coalesce(m.name, '') as payment_method_name,
+            coalesce(m.settles_immediately, true) as settles_immediately
+     from sales s
+     join drugs d on d.id = s.drug_id
+     join users u on u.id = s.sold_by
+     left join payment_methods m on m.id = s.payment_method_id
+     order by s.created_at desc, s.id desc
+     limit 160`,
+  );
+  const saleIds = rows.map((row) => num(row.id));
+  const collections = saleIds.length === 0
+    ? []
+    : await sql(
+        `select c.sale_id, c.amount, m.name
+         from collections c
+         join payment_methods m on m.id = c.payment_method_id
+         where c.sale_id = any($1::int[])
+         order by c.id`,
+        [saleIds],
+      );
+  const coveredRows = saleIds.length === 0
+    ? []
+    : await sql(
+        `select sale_id, sum(insurer_amount)::int as covered from sale_coverages
+         where sale_id = any($1::int[]) group by sale_id`,
+        [saleIds],
+      );
+  const coveredBySale = new Map(coveredRows.map((row) => [num(row.sale_id), num(row.covered)]));
+  const paidBySale = new Map<number, Array<{ name: string; amount: number }>>();
+  for (const row of collections) {
+    const id = num(row.sale_id);
+    const list = paidBySale.get(id) ?? [];
+    list.push({ name: text(row.name) || "Payment", amount: num(row.amount) });
+    paidBySale.set(id, list);
+  }
+  const groups = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = row.basket_id == null ? `sale-${num(row.id)}` : `basket-${num(row.basket_id)}`;
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const bills = [...groups.entries()].map(([key, group]): Bill => {
+    const ordered = [...group].sort((left, right) => num(left.id) - num(right.id));
+    const first = ordered[0];
+    const total = ordered.reduce((sum, line) => sum + num(line.total), 0);
+    const settles = ordered.every((line) => line.settles_immediately !== false);
+    const collected = ordered.flatMap((line) => paidBySale.get(num(line.id)) ?? []);
+    const amounts = new Map<string, number>();
+    if (collected.length > 0) {
+      for (const payment of collected) amounts.set(payment.name, (amounts.get(payment.name) ?? 0) + payment.amount);
+    } else if (settles) {
+      for (const line of ordered) {
+        const method = text(line.payment_method_name) || "Payment";
+        amounts.set(method, (amounts.get(method) ?? 0) + num(line.total));
+      }
+    }
+    const paid = [...amounts.values()].reduce((sum, amount) => sum + amount, 0);
+    const covered = ordered.reduce((sum, line) => sum + (coveredBySale.get(num(line.id)) ?? 0), 0);
+    const fiscal = text(first?.fiscal_code);
+    return {
+      key,
+      createdAt: text(ordered[ordered.length - 1]?.created_at),
+      customerName: text(first?.customer_name),
+      sellerName: text(first?.seller_name),
+      receiptNumbers: ordered.map((line) => text(line.receipt_number)).filter(Boolean),
+      lines: ordered.map((line) => ({
+        name: text(line.drug_name),
+        strength: text(line.strength),
+        quantity: num(line.quantity),
+        unitPrice: num(line.unit_price),
+        total: num(line.total),
+        directions: text(line.directions),
+        lotLabel: text(line.lot_label),
+      })),
+      payments: [...amounts.entries()].map(([method, amount]) => ({ method, amount })),
+      total,
+      balance: Math.max(0, total - paid - covered),
+      fiscalNote: fiscal ? `Local fiscal mark ${fiscal}. Not an RRA-signed EBM receipt.` : "",
+    };
+  });
+  bills.sort((left, right) => (left.createdAt < right.createdAt ? 1 : left.createdAt > right.createdAt ? -1 : 0));
+  return bills.slice(0, 80);
 }
 
 export async function listSales(): Promise<Sale[]> {
@@ -608,41 +733,111 @@ export async function recordSale(user: Staff, input: SaleInput) {
   });
 }
 
+async function applyCounterTenders(
+  user: Staff,
+  sales: Array<{ id: number; total: number }>,
+  tenders: Array<{ paymentMethodId: number; amount: number }>,
+  total: number,
+) {
+  const paid = tenders.reduce((sum, tender) => sum + tender.amount, 0);
+  if (paid > total) throw new ApiError(400, `The amount paid is more than the ${formatRwf(total)} bill.`);
+  const ids = tenders.map((tender) => tender.paymentMethodId);
+  const methods = await sql<{ id: number; name: string; settles_immediately: boolean; active: boolean }>(
+    `select id, name, settles_immediately, active from payment_methods where id = any($1::int[])`,
+    [ids],
+  );
+  for (const tender of tenders) {
+    const method = methods.find((item) => num(item.id) === tender.paymentMethodId);
+    if (!method || !method.active || method.settles_immediately === false) {
+      throw new ApiError(400, "Take a payment in a method that is paid now, such as cash or mobile money.");
+    }
+  }
+  const open = sales.map((sale) => ({ id: sale.id, remaining: sale.total }));
+  for (const tender of tenders) {
+    let left = tender.amount;
+    for (const sale of open) {
+      if (left < 1 || sale.remaining < 1) continue;
+      const take = Math.min(left, sale.remaining);
+      await sql(
+        `insert into collections (sale_id, amount, payment_method_id, collected_by) values ($1, $2, $3, $4)`,
+        [sale.id, take, tender.paymentMethodId, user.id],
+      );
+      await sql(
+        `insert into ledger_entries (kind, direction, amount, payment_method_id, sale_id, note, created_by)
+         values ('collection', 'in', $1, $2, $3, 'Paid at the counter', $4)`,
+        [take, tender.paymentMethodId, sale.id, user.id],
+      );
+      sale.remaining -= take;
+      left -= take;
+    }
+  }
+  const label = tenders
+    .map((tender) => {
+      const method = methods.find((item) => num(item.id) === tender.paymentMethodId);
+      return `${text(method?.name) || "Payment"} ${formatRwf(tender.amount)}`;
+    })
+    .join(" · ");
+  return { paid, label };
+}
+
 export async function recordBasket(
   user: Staff,
   input: {
     customerName: string;
     paymentMethodId: number;
     patientId?: number | null;
+    memberNumber?: string;
     acknowledgeRisks?: boolean;
     lines: SaleInput[];
+    tenders?: Array<{ paymentMethodId: number; amount: number }>;
   },
 ) {
   assertAccess(user.role, "sales");
+  const memberNumber = (input.memberNumber ?? "").trim();
+  const cover = memberNumber
+    ? await quoteCoverage({
+        memberNumber,
+        lines: await previewLineTotals(input.lines),
+        acknowledgeRisks: input.acknowledgeRisks,
+        patientId: input.patientId,
+      })
+    : null;
+  const customerName = input.customerName.trim() || cover?.patientName || "";
+  const patientId = input.patientId ?? cover?.patientId ?? null;
+  let paymentMethodId = input.paymentMethodId;
+  if (cover && cover.insurerAmount > 0) {
+    const [credit] = await sql<{ id: number }>(
+      `select id from payment_methods where kind = 'credit' and active order by id limit 1`,
+    );
+    if (!credit) throw new ApiError(400, "Add a credit payment method so the insurer share stays off the cash drawer.");
+    paymentMethodId = num(credit.id);
+  }
   const pending = user.role === "dispenser";
   const [basket] = await sql<{ id: number }>(
     `insert into baskets (customer_name, patient_id, payment_method_id, sold_by, status)
      values ($1, $2, $3, $4, $5) returning id`,
-    [input.customerName, input.patientId ?? null, input.paymentMethodId, user.id, pending ? "pending_check" : "completed"],
+    [customerName, patientId, paymentMethodId, user.id, pending ? "pending_check" : "completed"],
   );
   const receipt: PaymentReceipt = {
     numbers: [],
     issuedAt: "",
-    customerName: input.customerName,
+    customerName,
     sellerName: user.name,
     paymentMethodName: "",
     settlesImmediately: true,
     lines: [],
   };
+  const postedSales: Array<{ id: number; total: number }> = [];
   for (const line of input.lines) {
     const posted = await recordSale(user, {
       ...line,
-      customerName: input.customerName,
-      paymentMethodId: input.paymentMethodId,
-      patientId: input.patientId,
+      customerName,
+      paymentMethodId,
+      patientId,
       acknowledgeRisks: input.acknowledgeRisks,
     });
     await sql(`update sales set basket_id = $1 where id = $2`, [num(basket.id), posted.id]);
+    postedSales.push({ id: posted.id, total: posted.total });
     receipt.numbers.push(...posted.receipt.numbers);
     receipt.issuedAt = posted.receipt.issuedAt;
     receipt.paymentMethodName = posted.receipt.paymentMethodName;
@@ -652,6 +847,36 @@ export async function recordBasket(
   }
   if (pending) {
     receipt.fiscalNote = `${receipt.fiscalNote ?? ""} A pharmacist still needs to check this sale.`.trim();
+  }
+  const total = receipt.lines.reduce((sum, line) => sum + line.total, 0);
+  if (cover) {
+    await persistCoverage(user, cover, postedSales.map((sale) => sale.id), `basket-${num(basket.id)}`);
+    receipt.fiscalNote = `${receipt.fiscalNote ?? ""} ${coverageNote(cover)}`.trim();
+  }
+  const [original] = await sql<{ settles_immediately: boolean }>(
+    `select settles_immediately from payment_methods where id = $1`,
+    [input.paymentMethodId],
+  );
+  const patientTenders = input.tenders && input.tenders.length > 0
+    ? input.tenders
+    : cover && cover.insurerAmount > 0 && original?.settles_immediately !== false && cover.patientPayable > 0
+      ? [{ paymentMethodId: input.paymentMethodId, amount: cover.patientPayable }]
+      : [];
+  if (cover && patientTenders.reduce((sum, tender) => sum + tender.amount, 0) > cover.patientPayable) {
+    throw new ApiError(400, `After insurance the patient owes ${formatRwf(cover.patientPayable)}.`);
+  }
+  if (patientTenders.length > 0 && !receipt.settlesImmediately) {
+    const allocation = cover
+      ? postedSales.map((sale, index) => ({ id: sale.id, total: cover.lines[index]?.patientPayable ?? sale.total }))
+      : postedSales;
+    const cap = cover ? cover.patientPayable : total;
+    const payment = await applyCounterTenders(user, allocation, patientTenders, cap);
+    const due = cover ? cover.patientPayable : total;
+    receipt.paymentMethodName = payment.label;
+    receipt.settlesImmediately = payment.paid >= due;
+    if (payment.paid < due) {
+      receipt.fiscalNote = `${receipt.fiscalNote ?? ""} Paid ${formatRwf(payment.paid)}. ${formatRwf(due - payment.paid)} stays on the bill.`.trim();
+    }
   }
   return { id: num(basket.id), pending, receipt };
 }
