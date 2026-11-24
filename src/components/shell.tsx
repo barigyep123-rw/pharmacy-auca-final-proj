@@ -50,6 +50,7 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
           link.href === "/finance" ||
           link.href === "/reports" ||
           link.href === "/patients" ||
+          link.href === "/suppliers" ||
           link.href === "/orders/drafts"
             ? pathname.startsWith(link.href)
             : pathname === link.href;

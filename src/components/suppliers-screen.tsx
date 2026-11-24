@@ -21,18 +21,37 @@ const blank = {
   phone: "",
   email: "",
   address: "",
+  taxNumber: "",
   terms: "",
   notes: "",
   active: true,
 };
+
+const paymentTerms = ["Pay on delivery", "Net 15 days", "Net 30 days", "Net 60 days"];
+
+type FormState = typeof blank;
+
+function fromProfile(supplier: SupplierProfile): FormState {
+  return {
+    name: supplier.name,
+    contactName: supplier.contactName,
+    phone: supplier.phone,
+    email: supplier.email,
+    address: supplier.address,
+    taxNumber: supplier.taxNumber,
+    terms: supplier.terms,
+    notes: supplier.notes,
+    active: supplier.active,
+  };
+}
 
 export function SuppliersScreen() {
   const staff = useStaff();
   const canEdit = staff ? can(staff.role, "orders") : false;
   const [rows, setRows] = useState<SupplierProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<SupplierProfile | null>(null);
-  const [form, setForm] = useState(blank);
+  const [active, setActive] = useState<SupplierProfile | "new" | null>(null);
+  const [form, setForm] = useState<FormState>(blank);
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -57,16 +76,13 @@ export function SuppliersScreen() {
 
   function open(supplier: SupplierProfile) {
     setActive(supplier);
-    setForm({
-      name: supplier.name,
-      contactName: supplier.contactName,
-      phone: supplier.phone,
-      email: supplier.email,
-      address: supplier.address,
-      terms: supplier.terms,
-      notes: supplier.notes,
-      active: supplier.active,
-    });
+    setForm(fromProfile(supplier));
+    setFormError(null);
+  }
+
+  function startCreate() {
+    setActive("new");
+    setForm(blank);
     setFormError(null);
   }
 
@@ -76,8 +92,13 @@ export function SuppliersScreen() {
     setPending(true);
     setFormError(null);
     try {
-      await api(`/api/supplier-profiles/${active.id}`, { method: "PATCH", body: JSON.stringify(form) });
-      toast.success("Supplier profile saved.");
+      if (active === "new") {
+        await api("/api/supplier-profiles", { method: "POST", body: JSON.stringify(form) });
+        toast.success("Supplier added.");
+      } else {
+        await api(`/api/supplier-profiles/${active.id}`, { method: "PATCH", body: JSON.stringify(form) });
+        toast.success("Supplier profile saved.");
+      }
       setActive(null);
       await load();
     } catch (caught) {
@@ -90,16 +111,23 @@ export function SuppliersScreen() {
   if (!rows && !error) return <LoadingBlock label="Opening supplier profiles…" />;
   if (!rows) return <Notice>{error}</Notice>;
 
+  const creating = active === "new";
+
   return (
     <div>
       <PageHeader
         eyebrow="Suppliers"
         title="Supplier profiles"
-        lede="Name, contact, and payment terms stay with the supplier. Invoices and orders keep a link to this record."
+        lede="Name, contact, address, and payment terms stay with the supplier. Invoices and orders keep a link to this record."
+        action={canEdit ? <Button onClick={startCreate}>New supplier</Button> : undefined}
       />
       <Card className="overflow-hidden">
         {rows.length === 0 ? (
-          <p className="p-4 text-sm text-muted">No suppliers yet. Saving a name on an order or invoice creates the profile.</p>
+          <p className="p-4 text-sm text-muted">
+            {canEdit
+              ? "No suppliers yet. Add one here, or save a name on an order or invoice."
+              : "No suppliers yet."}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-sm">
@@ -117,6 +145,8 @@ export function SuppliersScreen() {
                   <tr key={supplier.id} className="border-t border-line">
                     <td className="px-4 py-3">
                       <p className="font-medium">{supplier.name}</p>
+                      {supplier.address ? <p className="text-xs text-muted">{supplier.address}</p> : null}
+                      {supplier.taxNumber ? <p className="text-xs text-muted">VAT {supplier.taxNumber}</p> : null}
                       {supplier.active ? null : <Badge tone="neutral">Inactive</Badge>}
                     </td>
                     <td className="px-4 py-3">
@@ -142,29 +172,75 @@ export function SuppliersScreen() {
       <Dialog open={Boolean(active)} onOpenChange={(next) => { if (!next) setActive(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form.name || "Supplier"}</DialogTitle>
+            <DialogTitle>{creating ? "New supplier" : form.name || "Supplier"}</DialogTitle>
           </DialogHeader>
           <form className="space-y-3" onSubmit={(event) => void save(event)}>
             {formError ? <Notice>{formError}</Notice> : null}
-            {(
-              [
-                ["name", "Name"],
-                ["contactName", "Contact person"],
-                ["phone", "Phone"],
-                ["email", "Email"],
-                ["address", "Address"],
-                ["terms", "Payment terms"],
-              ] as const
-            ).map(([key, label]) => (
-              <label key={key} className="block space-y-1.5">
-                <span className="text-sm font-medium">{label}</span>
-                <Input
-                  value={form[key]}
-                  disabled={!canEdit}
-                  onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
-                />
-              </label>
-            ))}
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Name</span>
+              <Input
+                value={form.name}
+                required
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Contact person</span>
+              <Input
+                value={form.contactName}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, contactName: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Phone</span>
+              <Input
+                value={form.phone}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Email</span>
+              <Input
+                type="email"
+                value={form.email}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Physical address</span>
+              <Input
+                value={form.address}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Tax / VAT number</span>
+              <Input
+                value={form.taxNumber}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, taxNumber: event.target.value }))}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Payment terms</span>
+              <Input
+                list="payment-terms"
+                placeholder="Pay on delivery, or net 30"
+                value={form.terms}
+                disabled={!canEdit}
+                onChange={(event) => setForm((current) => ({ ...current, terms: event.target.value }))}
+              />
+              <datalist id="payment-terms">
+                {paymentTerms.map((term) => (
+                  <option key={term} value={term} />
+                ))}
+              </datalist>
+            </label>
             <label className="block space-y-1.5">
               <span className="text-sm font-medium">Notes</span>
               <Textarea
@@ -185,7 +261,9 @@ export function SuppliersScreen() {
             {canEdit ? (
               <DialogFooter>
                 <Button type="button" variant="quiet" onClick={() => setActive(null)}>Cancel</Button>
-                <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save profile"}</Button>
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Saving…" : creating ? "Add supplier" : "Save profile"}
+                </Button>
               </DialogFooter>
             ) : (
               <p className="text-sm text-muted">Only an admin or stock keeper can change a supplier profile.</p>

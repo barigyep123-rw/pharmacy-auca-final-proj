@@ -22,11 +22,24 @@ export type SupplierProfile = {
   phone: string;
   email: string;
   address: string;
+  taxNumber: string;
   terms: string;
   notes: string;
   active: boolean;
   invoiceCount: number;
   openInvoiceTotal: number;
+};
+
+export type SupplierInput = {
+  name: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  address: string;
+  taxNumber: string;
+  terms: string;
+  notes: string;
+  active: boolean;
 };
 
 export async function ensureSupplier(query: QueryFn, name: string) {
@@ -54,53 +67,79 @@ export async function ensureSupplier(query: QueryFn, name: string) {
   }
 }
 
-export async function listSupplierProfiles(): Promise<SupplierProfile[]> {
-  const rows = await sql(
-    `select s.id, s.name, s.contact_name, s.phone, s.email, s.address, s.terms, s.notes, s.active,
-            (select count(*) from supplier_invoices i where i.supplier_id = s.id)::int as invoice_count,
-            (
-              select coalesce(sum(amount), 0)::int from supplier_invoices i
-              where i.supplier_id = s.id and i.status = 'open'
-            ) as open_invoice_total
-     from suppliers s
-     order by s.active desc, lower(s.name)`,
-  );
-  return rows.map((row) => ({
+function profileFrom(row: Record<string, unknown>): SupplierProfile {
+  return {
     id: num(row.id),
     name: text(row.name),
     contactName: text(row.contact_name),
     phone: text(row.phone),
     email: text(row.email),
     address: text(row.address),
+    taxNumber: text(row.tax_number),
     terms: text(row.terms),
     notes: text(row.notes),
     active: row.active !== false,
     invoiceCount: num(row.invoice_count),
     openInvoiceTotal: num(row.open_invoice_total),
-  }));
+  };
 }
 
-export async function updateSupplier(
-  actor: Staff,
-  id: number,
-  input: {
-    name: string;
-    contactName: string;
-    phone: string;
-    email: string;
-    address: string;
-    terms: string;
-    notes: string;
-    active: boolean;
-  },
-) {
+const profileSelect = `select s.id, s.name, s.contact_name, s.phone, s.email, s.address, s.tax_number,
+            s.terms, s.notes, s.active,
+            (select count(*) from supplier_invoices i where i.supplier_id = s.id)::int as invoice_count,
+            (
+              select coalesce(sum(amount), 0)::int from supplier_invoices i
+              where i.supplier_id = s.id and i.status = 'open'
+            ) as open_invoice_total
+     from suppliers s`;
+
+export async function listSupplierProfiles(): Promise<SupplierProfile[]> {
+  const rows = await sql(`${profileSelect} order by s.active desc, lower(s.name)`);
+  return rows.map(profileFrom);
+}
+
+export async function createSupplierProfile(actor: Staff, input: SupplierInput) {
+  assertAccess(actor.role, "orders");
+  try {
+    const [row] = await sql<{ id: number }>(
+      `insert into suppliers (name, contact_name, phone, email, address, tax_number, terms, notes, active)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       returning id`,
+      [
+        input.name,
+        input.contactName,
+        input.phone,
+        input.email,
+        input.address,
+        input.taxNumber,
+        input.terms,
+        input.notes,
+        input.active,
+      ],
+    );
+    await writeAudit(sql, actor, {
+      action: "create",
+      entity: "supplier",
+      entityId: num(row.id),
+      summary: `Added supplier ${input.name}.`,
+    });
+    const [saved] = await sql(`${profileSelect} where s.id = $1`, [num(row.id)]);
+    if (!saved) throw new ApiError(500, "The supplier was saved but could not be read back.");
+    return profileFrom(saved);
+  } catch (error) {
+    if (isUniqueViolation(error)) throw new ApiError(409, "A supplier with that name already exists.");
+    throw error;
+  }
+}
+
+export async function updateSupplier(actor: Staff, id: number, input: SupplierInput) {
   assertAccess(actor.role, "orders");
   try {
     const [row] = await sql<{ id: number; name: string }>(
       `update suppliers set
          name = $1, contact_name = $2, phone = $3, email = $4, address = $5,
-         terms = $6, notes = $7, active = $8
-       where id = $9
+         tax_number = $6, terms = $7, notes = $8, active = $9
+       where id = $10
        returning id, name`,
       [
         input.name,
@@ -108,6 +147,7 @@ export async function updateSupplier(
         input.phone,
         input.email,
         input.address,
+        input.taxNumber,
         input.terms,
         input.notes,
         input.active,

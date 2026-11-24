@@ -7,7 +7,7 @@ import { createInvoice, listInvoices } from "../src/lib/finance";
 import { patientHistory, listPatients } from "../src/lib/patients";
 import { listDrugs, listPrescriptions, recordSale, refillPrescription, staffByEmail } from "../src/lib/pharmacy";
 import { listPaymentMethods } from "../src/lib/settings";
-import { listSupplierProfiles, updateSupplier } from "../src/lib/suppliers";
+import { createSupplierProfile, listSupplierProfiles, updateSupplier } from "../src/lib/suppliers";
 import { staffEmails } from "../src/lib/seed";
 import { kigaliToday } from "../src/lib/time";
 
@@ -68,10 +68,12 @@ test("an invoice stays linked to the supplier profile, and the change is audited
     phone: wholesale.phone,
     email: "desk@kigalipharma.rw",
     address: wholesale.address,
+    taxNumber: "102345678",
     terms: "Net 15 days",
     notes: "",
     active: true,
   });
+  assert.equal((await listSupplierProfiles()).find((item) => item.id === wholesale.id)?.taxNumber, "102345678");
   assert.equal((await listInvoices()).find((item) => item.id === invoice.id)?.terms, "Net 15 days");
 
   const para = (await listDrugs()).find((item) => item.sku === "PARA-500");
@@ -90,4 +92,47 @@ test("an invoice stays linked to the supplier profile, and the change is audited
     assert.equal(error.status, 403);
     return true;
   });
+});
+
+test("a new supplier profile keeps address, contact, and payment terms", async () => {
+  const keeper = await staffByEmail(staffEmails.stockKeeper);
+  const created = await createSupplierProfile(keeper, {
+    name: "Musanze Meds",
+    contactName: "Eric Habimana",
+    phone: "0788 111 222",
+    email: "orders@musanzemeds.rw",
+    address: "Muhoza, Musanze",
+    taxNumber: "109988776",
+    terms: "Pay on delivery",
+    notes: "",
+    active: true,
+  });
+  assert.equal(created.address, "Muhoza, Musanze");
+  assert.equal(created.contactName, "Eric Habimana");
+  assert.equal(created.terms, "Pay on delivery");
+  assert.equal(created.taxNumber, "109988776");
+  const listed = (await listSupplierProfiles()).find((item) => item.id === created.id);
+  assert.ok(listed);
+  assert.equal(listed.email, "orders@musanzemeds.rw");
+
+  const jean = await staffByEmail(staffEmails.pharmacist);
+  await assert.rejects(
+    () =>
+      createSupplierProfile(jean, {
+        name: "Blocked Wholesale",
+        contactName: "",
+        phone: "",
+        email: "",
+        address: "",
+        taxNumber: "",
+        terms: "",
+        notes: "",
+        active: true,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiError);
+      assert.equal(error.status, 403);
+      return true;
+    },
+  );
 });
