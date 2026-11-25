@@ -42,31 +42,22 @@ export function RegisterScreen() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
-      <section className="flex flex-col justify-between bg-pine-deep px-6 py-8 text-paper-2 lg:px-12 lg:py-12">
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,24rem)_1fr]">
+      <section className="order-2 hidden flex-col justify-between border-r border-line bg-paper-2 px-8 pt-10 pb-16 lg:order-1 lg:flex">
+        <p className="text-lg font-semibold">{pharmacyName}</p>
         <div>
-          <p className="font-serif text-3xl">{pharmacyName}</p>
-          <span className="mt-3 block h-1 w-16 bg-brass" />
-          <p className="mt-3 text-sm text-paper-2/65">{pharmacyPlace}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Register the first admin.</h1>
+          <p className="mt-2 text-sm text-muted">{pharmacyPlace}</p>
         </div>
-        <div className="my-10 max-w-md">
-          <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
-            Open the ledger with the first admin account.
-          </h1>
-          <p className="mt-6 text-sm leading-6 text-paper-2/75">
-            {demoStaff
-              ? "Your admin account is open. Sign in with the email and password you just chose. The other desks are listed once, on the right."
-              : "This desk has no admin yet. Register your name, email, and phone, then choose a password. After that, sign in with those details."}
-          </p>
-        </div>
-        <p className="text-xs text-paper-2/50">Prices in Rwandan francs. Dates follow Africa/Kigali.</p>
+        <p className="text-xs text-muted">Prices in Rwandan francs. Dates follow Africa/Kigali.</p>
       </section>
 
-      <section className="flex items-center bg-paper px-6 py-10 lg:px-12">
+      <section className="order-1 flex items-start bg-paper px-6 py-8 lg:order-2 lg:items-center lg:px-12 lg:py-10">
         {demoStaff ? (
           <div className="mx-auto w-full max-w-md space-y-5">
             <div>
-              <h2 className="font-serif text-3xl tracking-tight">Desk passwords</h2>
+              <p className="mb-3 text-sm font-semibold lg:hidden">{pharmacyName}</p>
+              <h2 className="text-2xl font-semibold tracking-tight">Desk passwords</h2>
               <p className="mt-2 text-sm text-muted">
                 These example accounts were created just now. The passwords are shown once and are not stored in the app.
               </p>
@@ -94,7 +85,8 @@ export function RegisterScreen() {
           }}
         >
           <div>
-            <h2 className="font-serif text-3xl tracking-tight">Register the admin</h2>
+            <p className="mb-3 text-sm font-semibold lg:hidden">{pharmacyName}</p>
+            <h2 className="text-2xl font-semibold tracking-tight">Register the admin</h2>
             <p className="mt-2 text-sm text-muted">Only the first admin is created here. Later staff sign in at the counter.</p>
           </div>
           {error ? <Notice>{error}</Notice> : null}

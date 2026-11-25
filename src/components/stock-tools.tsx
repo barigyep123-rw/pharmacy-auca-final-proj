@@ -72,7 +72,7 @@ export function StockTools({ drugs }: { drugs: Drug[] }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="p-4">
-        <h2 className="mb-3 font-serif text-xl">Returns and write-offs</h2>
+        <h2 className="mb-3 font-semibold text-xl">Returns and write-offs</h2>
         <form className="space-y-3" onSubmit={(event) => void adjust(event)}>
           <label className="block space-y-1.5">
             <span className="text-sm font-medium">Drug</span>
@@ -125,7 +125,7 @@ export function StockTools({ drugs }: { drugs: Drug[] }) {
       </Card>
       <Card className="space-y-4 p-4">
         <div>
-          <h2 className="mb-2 font-serif text-xl">Till</h2>
+          <h2 className="mb-2 font-semibold text-xl">Till</h2>
           <p className="mb-2 text-sm text-muted">{shift ? `Open, started by ${shift.openedBy}.` : "No shift is open."}</p>
           <div className="flex flex-wrap gap-2">
             <Button variant="quiet" onClick={() => void api("/api/till", { method: "POST", body: JSON.stringify({ action: "open" }) }).then(() => api<{ shift: { openedBy: string } | null }>("/api/till")).then((result) => setShift(result.shift)).catch((caught: unknown) => toast.error(caught instanceof Error ? caught.message : "Could not open the till."))}>
@@ -150,7 +150,7 @@ export function StockTools({ drugs }: { drugs: Drug[] }) {
           </div>
         </div>
         <div>
-          <h2 className="mb-2 font-serif text-xl">Stocktake</h2>
+          <h2 className="mb-2 font-semibold text-xl">Stocktake</h2>
           <Button
             variant="quiet"
             onClick={() =>

@@ -29,28 +29,17 @@ export function LoginScreen({ notice }: { notice?: string | null }) {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
-      <section className="flex flex-col justify-between bg-pine-deep px-6 py-8 text-paper-2 lg:px-12 lg:py-12">
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,24rem)_1fr]">
+      <section className="order-2 hidden flex-col justify-between border-r border-line bg-paper-2 px-8 pt-10 pb-16 lg:order-1 lg:flex">
+        <p className="text-lg font-semibold">{pharmacyName}</p>
         <div>
-          <p className="font-serif text-3xl">{pharmacyName}</p>
-          <span className="mt-3 block h-1 w-16 bg-brass" />
-          <p className="mt-3 text-sm text-paper-2/65">{pharmacyPlace}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Stock, sales, and prescriptions.</h1>
+          <p className="mt-2 text-sm text-muted">{pharmacyPlace}</p>
         </div>
-        <div className="my-10 max-w-md">
-          <h1 className="font-serif text-4xl leading-tight tracking-tight md:text-5xl">
-            The shelf, the counter, and the prescriptions in one ledger.
-          </h1>
-          <ul className="mt-6 space-y-2 text-sm leading-6 text-paper-2/75">
-            <li>Stock, expiry, and low-shelf alerts.</li>
-            <li>Walk-in sales that take quantity off the shelf.</li>
-            <li>Prescriptions you can mark dispensed.</li>
-            <li>Supplier orders that add stock only when the delivery is received.</li>
-          </ul>
-        </div>
-        <p className="text-xs text-paper-2/50">Prices in Rwandan francs. Dates follow Africa/Kigali.</p>
+        <p className="text-xs text-muted">Prices in Rwandan francs. Dates follow Africa/Kigali.</p>
       </section>
 
-      <section className="flex items-center bg-paper px-6 py-10 lg:px-12">
+      <section className="order-1 flex items-start bg-paper px-6 py-8 lg:order-2 lg:items-center lg:px-12 lg:py-10">
         <form
           className="mx-auto w-full max-w-md space-y-5"
           onSubmit={(event) => {
@@ -59,7 +48,8 @@ export function LoginScreen({ notice }: { notice?: string | null }) {
           }}
         >
           <div>
-            <h2 className="font-serif text-3xl tracking-tight">Sign in</h2>
+            <p className="mb-3 text-sm font-semibold lg:hidden">{pharmacyName}</p>
+            <h2 className="text-2xl font-semibold tracking-tight">Sign in</h2>
             <p className="mt-2 text-sm text-muted">
               Use the email and password for your desk. Admin and pharmacist see different catalog controls.
             </p>

@@ -77,8 +77,8 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
             href={link.href}
             onClick={() => setOpen(false)}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
-              active ? "bg-white/12 text-paper-2" : "text-paper-2/75 hover:bg-white/8 hover:text-paper-2",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
+              active ? "bg-pine-soft font-medium text-pine" : "text-muted hover:bg-paper hover:text-ink",
             )}
             aria-current={active ? "page" : undefined}
           >
@@ -92,22 +92,22 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
 
   return (
     <div className="min-h-full md:grid md:grid-cols-[15.5rem_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-screen flex-col bg-pine-deep text-paper-2 md:flex">
-        <div className="flex items-center gap-3 px-5 pt-6">
-          <Mark className="size-8 text-brass" />
+      <aside className="sticky top-0 hidden h-screen flex-col border-r border-line bg-paper-2 text-ink md:flex">
+        <div className="flex items-center gap-3 px-5 pt-5">
+          <Mark className="size-8 text-pine" />
           <div>
-            <p className="font-serif text-xl leading-none">{shopName}</p>
-            <p className="mt-1 text-xs text-paper-2/60">{pharmacyPlace}</p>
+            <p className="text-base font-semibold leading-none">{shopName}</p>
+            <p className="mt-1 text-xs text-muted">{pharmacyPlace}</p>
           </div>
         </div>
         {nav}
-        <div className="border-t border-white/10 p-4 pb-16">
+        <div className="border-t border-line p-4 pb-16">
           <p className="text-sm font-medium">{user.name}</p>
-          <p className="text-xs text-paper-2/60">{roleLabel(user.role)}</p>
+          <p className="text-xs text-muted">{roleLabel(user.role)}</p>
           <button
             type="button"
             onClick={() => void signOut()}
-            className="mt-3 inline-flex items-center gap-2 text-sm text-paper-2/80 hover:text-paper-2"
+            className="mt-3 inline-flex items-center gap-2 text-sm text-muted hover:text-ink"
           >
             <LogOut className="size-4" />
             Sign out
@@ -115,11 +115,11 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
         </div>
       </aside>
 
-      <div className="flex min-h-screen min-w-0 flex-col border-t-[3px] border-brass md:border-t-0">
-        <header className="flex items-center justify-between border-b border-line bg-card px-4 py-3 md:hidden">
+      <div className="flex min-h-screen min-w-0 flex-col">
+        <header className="flex items-center justify-between border-b border-line bg-paper-2 px-4 py-3 md:hidden">
           <div className="flex items-center gap-2">
-            <Mark className="size-7 text-brass" />
-            <span className="font-serif text-lg">{shopName}</span>
+            <Mark className="size-7 text-pine" />
+            <span className="text-base font-semibold">{shopName}</span>
           </div>
           <button
             type="button"
@@ -131,19 +131,19 @@ export function Shell({ user, children }: { user: Staff; children: React.ReactNo
           </button>
         </header>
         {open ? (
-          <div className="border-b border-line bg-pine-deep text-paper-2 md:hidden">
+          <div className="border-b border-line bg-paper-2 text-ink md:hidden">
             {nav}
             <button
               type="button"
               onClick={() => void signOut()}
-              className="mx-3 mb-4 inline-flex items-center gap-2 px-3 text-sm text-paper-2/80"
+              className="mx-3 mb-4 inline-flex items-center gap-2 px-3 text-sm text-muted"
             >
               <LogOut className="size-4" />
               Sign out
             </button>
           </div>
         ) : null}
-        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-4 md:px-6 md:py-5">{children}</main>
       </div>
     </div>
   );

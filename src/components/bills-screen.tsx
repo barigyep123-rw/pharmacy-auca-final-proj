@@ -103,7 +103,7 @@ export function BillsScreen() {
         lede="Credit stays with the customer until they pay. Thirty days is the default. Cash and mobile money both count."
       />
       <Card className="mb-4 p-4">
-        <h2 className="font-serif text-xl">Who owes</h2>
+        <h2 className="text-base font-semibold">Who owes</h2>
         {accounts.length === 0 ? (
           <p className="mt-2 text-sm text-muted">Nobody has an open balance.</p>
         ) : (
@@ -125,8 +125,8 @@ export function BillsScreen() {
       </Card>
       <Card className="overflow-hidden">
         {bills.length === 0 ? <p className="p-4 text-sm text-muted">No bills yet.</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] text-sm">
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="scan-table w-full min-w-[44rem] text-sm">
               <thead className="text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">When</th>
@@ -190,7 +190,7 @@ export function BillsScreen() {
           {open ? (
             <>
               <DialogHeader>
-                <DialogTitle>{open.customerName || "Walk-in"} · {formatRwf(open.total)}</DialogTitle>
+                <DialogTitle>{open.customerName || "Walk-in"} · {open.balance > 0 ? formatRwf(open.balance) : "Paid"}</DialogTitle>
               </DialogHeader>
               <div className="grid gap-3 text-sm sm:grid-cols-2">
                 <section className="rounded-xl border border-line p-3">

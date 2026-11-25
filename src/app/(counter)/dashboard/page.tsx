@@ -10,5 +10,5 @@ export const instant = false;
 export default async function DashboardPage() {
   await connection();
   await guard("dashboard");
-  return <DashboardScreen eyebrow={kigaliLongDate()} title={`${greeting()}.`} />;
+  return <DashboardScreen title={`${greeting()}.`} lede={kigaliLongDate()} />;
 }

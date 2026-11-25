@@ -34,7 +34,7 @@ export function SearchableSelect({
         type="button"
         aria-label={ariaLabel}
         aria-expanded={open}
-        className="flex h-10 w-full items-center justify-between rounded-lg border border-line bg-paper-2 px-2 text-left text-sm"
+        className="flex h-10 w-full items-center justify-between rounded-md border border-line bg-paper-2 px-2 text-left text-sm"
         onClick={() => {
           setOpen((current) => !current);
           setQuery("");
@@ -44,7 +44,7 @@ export function SearchableSelect({
         <span className="text-muted" aria-hidden="true">▾</span>
       </button>
       {open ? (
-        <div className="absolute z-30 mt-1 w-full rounded-lg border border-line bg-paper p-2 shadow-sm">
+        <div className="absolute z-30 mt-1 w-full rounded-md border border-line bg-paper p-2">
           <input
             autoFocus
             value={query}

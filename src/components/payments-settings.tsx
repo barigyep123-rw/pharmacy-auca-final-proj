@@ -207,7 +207,7 @@ export function PaymentsSettings() {
       />
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <h2 className="font-serif text-xl">Currencies</h2>
+          <h2 className="font-semibold text-xl">Currencies</h2>
           <Button size="sm" onClick={() => { setFormError(null); setCurrencyOpen(true); }}>Add currency</Button>
         </div>
         <div className="overflow-x-auto">
@@ -253,7 +253,7 @@ export function PaymentsSettings() {
 
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <h2 className="font-serif text-xl">Payment methods</h2>
+          <h2 className="font-semibold text-xl">Payment methods</h2>
           <Button size="sm" onClick={() => { setFormError(null); setMethodOpen(null); }}>Add method</Button>
         </div>
         <div className="overflow-x-auto">

@@ -345,11 +345,11 @@ export function SalesScreen({ today }: { today: string }) {
   if (!drugs) return <Notice>{error}</Notice>;
 
   return (
-    <div className="flex h-[calc(100dvh-6.5rem)] flex-col md:h-[calc(100dvh-4rem)]">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
-        <section className="flex min-h-0 flex-col rounded-2xl border border-line bg-card">
+    <div className="flex h-[calc(100dvh-6rem)] flex-col md:h-[calc(100dvh-2.5rem)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,20rem)] gap-3 lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-1">
+        <section className="order-2 flex min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-card lg:sticky lg:top-0">
           <div className="border-b border-line px-4 py-3">
-            <h2 className="font-serif text-xl">Cart</h2>
+            <h2 className="text-base font-semibold">Cart</h2>
             <Input
               className="mt-2"
               value={customerName}
@@ -387,7 +387,7 @@ export function SalesScreen({ today }: { today: string }) {
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {cart.length === 0 ? (
-              <p className="text-sm text-muted">Nothing selected yet. Tap a product on the right.</p>
+              <p className="text-sm text-muted">Nothing selected yet. Tap a product.</p>
             ) : (
               <ul className="space-y-3">
                 {cart.map((line) => (
@@ -416,10 +416,10 @@ export function SalesScreen({ today }: { today: string }) {
           </div>
         </section>
 
-        <section className="flex min-h-40 flex-col rounded-2xl border border-line bg-card md:min-h-0">
+        <section className="order-1 flex min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-card">
           <div className="space-y-2 border-b border-line px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-serif text-xl">Products</h2>
+              <h2 className="text-base font-semibold">Products</h2>
               {dispenser ? <span className="text-xs text-muted">Sellable stock</span> : null}
             </div>
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a generic, brand, or barcode" />
@@ -428,7 +428,7 @@ export function SalesScreen({ today }: { today: string }) {
                 <button
                   key={item}
                   type="button"
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${generic === item ? "bg-brass text-pine-deep" : "bg-paper text-muted"}`}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs ${generic === item ? "bg-pine text-white" : "bg-paper text-muted"}`}
                   onClick={() => setGeneric(item)}
                 >
                   {item === "All" ? "All generics" : item}
@@ -481,8 +481,8 @@ export function SalesScreen({ today }: { today: string }) {
         </section>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3">
-        <p className="font-serif text-2xl tabular-nums">{formatRwf(total)}</p>
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line bg-card px-4 py-3">
+        <p className="text-xl font-semibold tabular-nums">{formatRwf(total)}</p>
         <div className="flex gap-2">
           <Button type="button" variant="quiet" disabled={pending || cart.length === 0} onClick={() => void submit("bill")}>
             Create bill
@@ -534,7 +534,7 @@ export function SalesScreen({ today }: { today: string }) {
             <span className="text-sm font-medium">Quantity</span>
             <Input inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
           </label>
-          <p className="mt-3 font-serif text-2xl tabular-nums">{quote ? formatRwf(quote.total) : formatRwf(0)}</p>
+          <p className="mt-3 text-xl font-semibold tabular-nums">{quote ? formatRwf(quote.total) : formatRwf(0)}</p>
           <DialogFooter>
             <Button type="button" onClick={addToCart}>Add to cart</Button>
           </DialogFooter>

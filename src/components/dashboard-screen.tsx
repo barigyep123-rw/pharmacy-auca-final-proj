@@ -15,7 +15,7 @@ function party(name: string, prescriptionId: number | null) {
   return name || "Walk-in";
 }
 
-export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: string }) {
+export function DashboardScreen({ title, lede }: { title: string; lede?: string }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,20 +76,16 @@ export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: st
 
   return (
     <div>
-      <PageHeader
-        eyebrow={eyebrow}
-        title={title}
-        lede="The counter, limited to what your role can see."
-      />
+      <PageHeader title={title} lede={lede ?? "The counter, limited to what your role can see."} />
       {error ? <div className="mb-4"><Notice>{error}</Notice></div> : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
           <Card key={card.label} className="p-4">
             <div className="flex items-center justify-between text-muted">
               <p className="text-sm">{card.label}</p>
-              <card.icon className="size-4 text-brass" />
+              <card.icon className="size-4 text-pine" />
             </div>
-            <p className="mt-3 font-serif text-3xl tabular-nums tracking-tight">{card.value}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight">{card.value}</p>
             <p className="mt-1 text-sm text-muted">{card.detail}</p>
           </Card>
         ))}
@@ -99,7 +95,7 @@ export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: st
         {data.showInventory ? (
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-serif text-xl">Needs a look</h2>
+            <h2 className="text-base font-semibold">Needs a look</h2>
             <Link href="/inventory" className="text-sm text-pine hover:underline">
               Open inventory
             </Link>
@@ -134,7 +130,7 @@ export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: st
         {data.showPrescriptions ? (
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-serif text-xl">Recent prescriptions</h2>
+            <h2 className="text-base font-semibold">Recent prescriptions</h2>
             <Link href="/prescriptions" className="text-sm text-pine hover:underline">
               Open prescriptions
             </Link>
@@ -164,7 +160,7 @@ export function DashboardScreen({ eyebrow, title }: { eyebrow: string; title: st
 
       {data.showSales ? (
       <Card className="mt-4 p-4">
-        <h2 className="mb-3 font-serif text-xl">Today at the counter</h2>
+        <h2 className="mb-3 text-base font-semibold">Today at the counter</h2>
         {data.recentSales.length === 0 ? (
           <p className="text-sm text-muted">No sales yet today. A walk-in or a dispensed prescription will show up here.</p>
         ) : (

@@ -58,20 +58,20 @@ export function DailyReport({ initialDate }: { initialDate: string }) {
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
             <Card className="p-4">
               <p className="text-sm text-muted">Total</p>
-              <p className="mt-2 font-serif text-3xl tabular-nums">{formatRwf(data.total)}</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(data.total)}</p>
               <p className="mt-1 text-xs text-muted">{data.count} {data.count === 1 ? "sale" : "sales"}</p>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted">Settled</p>
-              <p className="mt-2 font-serif text-3xl tabular-nums">{formatRwf(data.settled)}</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(data.settled)}</p>
             </Card>
             <Card className="p-4">
               <p className="text-sm text-muted">On account</p>
-              <p className="mt-2 font-serif text-3xl tabular-nums">{formatRwf(data.onAccount)}</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(data.onAccount)}</p>
             </Card>
           </div>
           <Card className="mb-4 p-4">
-            <h2 className="mb-2 font-serif text-xl">By tender</h2>
+            <h2 className="mb-2 font-semibold text-xl">By tender</h2>
             {data.tenders.length === 0 ? (
               <p className="text-sm text-muted">No sales on this day.</p>
             ) : (
@@ -89,8 +89,8 @@ export function DailyReport({ initialDate }: { initialDate: string }) {
             {data.sales.length === 0 ? (
               <p className="p-4 text-sm text-muted">The counter was quiet.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[36rem] text-sm">
+              <div className="max-h-[70vh] overflow-auto">
+                <table className="scan-table w-full min-w-[36rem] text-sm">
                   <thead className="text-left text-xs uppercase tracking-wide text-muted">
                     <tr>
                       <th className="px-4 py-3 font-medium">When</th>

@@ -19,7 +19,7 @@ export function Field({
 export function Notice({ children, tone = "error" }: { children: React.ReactNode; tone?: "error" | "ok" }) {
   return (
     <p
-      className={tone === "ok" ? "rounded-lg bg-pine-soft px-3 py-2 text-sm text-pine" : "rounded-lg bg-clay-soft px-3 py-2 text-sm text-clay"}
+      className={tone === "ok" ? "rounded-md bg-pine-soft px-3 py-2 text-sm text-pine" : "rounded-md bg-clay-soft px-3 py-2 text-sm text-clay"}
       role={tone === "ok" ? "status" : "alert"}
     >
       {children}
@@ -31,7 +31,7 @@ export function LoadingBlock({ label }: { label: string }) {
   return (
     <div className="space-y-3" aria-busy="true" aria-live="polite">
       <p className="text-sm text-muted">{label}</p>
-      <div className="h-28 animate-pulse rounded-2xl bg-line/80" />
+      <div className="h-20 animate-pulse rounded-xl bg-line/70" />
     </div>
   );
 }
@@ -48,13 +48,11 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div className="max-w-2xl">
-        {eyebrow ? (
-          <p className="mb-1 text-xs font-medium uppercase tracking-[0.16em] text-brass">{eyebrow}</p>
-        ) : null}
-        <h1 className="font-serif text-3xl tracking-tight md:text-4xl">{title}</h1>
-        {lede ? <p className="mt-2 text-sm leading-6 text-muted">{lede}</p> : null}
+        {eyebrow ? <p className="mb-1 text-xs font-medium text-muted">{eyebrow}</p> : null}
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {lede ? <p className="mt-1 text-sm leading-6 text-muted">{lede}</p> : null}
       </div>
       {action}
     </div>

@@ -107,7 +107,7 @@ export function PatientHistoryScreen({ id }: { id: number }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="space-y-4">
           <Card className="p-4">
-            <h2 className="font-serif text-xl">Insurance cards</h2>
+            <h2 className="font-semibold text-xl">Insurance cards</h2>
             <p className="mt-1 text-sm text-muted">The counter verifies this member number. A free-text insurer name above is only a note.</p>
             {policies.length === 0 ? <p className="mt-3 text-sm text-muted">No card yet.</p> : (
               <ul className="mt-3 divide-y divide-line text-sm">
@@ -162,7 +162,7 @@ export function PatientHistoryScreen({ id }: { id: number }) {
             </form>
           </Card>
           <Card className="overflow-hidden">
-            <h2 className="border-b border-line px-4 py-3 font-serif text-xl">Prescriptions</h2>
+            <h2 className="border-b border-line px-4 py-3 font-semibold text-xl">Prescriptions</h2>
             {record.prescriptions.length === 0 ? (
               <p className="p-4 text-sm text-muted">No prescriptions yet.</p>
             ) : (
@@ -184,7 +184,7 @@ export function PatientHistoryScreen({ id }: { id: number }) {
             )}
           </Card>
           <Card className="overflow-hidden">
-            <h2 className="border-b border-line px-4 py-3 font-serif text-xl">Visits</h2>
+            <h2 className="border-b border-line px-4 py-3 font-semibold text-xl">Visits</h2>
             {record.visits.length === 0 ? (
               <p className="p-4 text-sm text-muted">No fills or counter sales are tied to this patient yet.</p>
             ) : (
@@ -200,7 +200,7 @@ export function PatientHistoryScreen({ id }: { id: number }) {
           </Card>
         </div>
         <Card className="p-4">
-          <h2 className="mb-3 font-serif text-xl">Notes</h2>
+          <h2 className="mb-3 font-semibold text-xl">Notes</h2>
           <form className="space-y-3" onSubmit={(event) => void saveNotes(event)}>
             <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} />
             <label className="block space-y-1.5 text-sm">

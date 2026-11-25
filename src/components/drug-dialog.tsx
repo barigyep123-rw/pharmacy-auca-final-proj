@@ -501,7 +501,7 @@ export function DrugDialog({
               </div>
             )
           ) : null}
-          <DialogFooter className="sm:col-span-2">
+          <DialogFooter className="sticky bottom-0 bg-card sm:col-span-2">
             {step > 0 ? (
               <Button type="button" variant="quiet" onClick={() => setStep(step - 1)}>Back</Button>
             ) : null}

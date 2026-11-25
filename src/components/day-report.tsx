@@ -60,8 +60,8 @@ export function DayReport({ initialFrom, initialTo }: { initialFrom: string; ini
           {data.days.length === 0 ? (
             <p className="p-4 text-sm text-muted">No sales in that range.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[36rem] text-sm">
+            <div className="max-h-[70vh] overflow-auto">
+              <table className="scan-table w-full min-w-[36rem] text-sm">
                 <thead className="text-left text-xs uppercase tracking-wide text-muted">
                   <tr>
                     <th className="px-4 py-3 font-medium">Day</th>

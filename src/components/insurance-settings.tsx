@@ -293,7 +293,7 @@ export function InsuranceSettings() {
             </Card>
             {typeof selected === "number" ? (
               <Card className="p-4">
-                <h2 className="mb-1 font-serif text-xl">Formulary</h2>
+                <h2 className="mb-1 font-semibold text-xl">Formulary</h2>
                 <p className="mb-3 text-sm text-muted">
                   A rule matches the brand first, then the generic, then the category. An exclusion stops the sale unless the counter accepts that the patient pays it. A blank percent uses the company rate. 80% on antibiotics and 50% on other listed lines is two rules.
                 </p>

@@ -54,7 +54,7 @@ export function LedgerScreen() {
         {data.tenders.map((tender) => (
           <Card key={`${tender.kind}-${tender.name}`} className="p-4">
             <p className="text-sm text-muted">{tender.name}</p>
-            <p className="mt-2 font-serif text-2xl tabular-nums">{formatRwf(tender.total)}</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(tender.total)}</p>
             <p className="mt-1 text-xs text-muted">
               {tender.count} {tender.count === 1 ? "sale" : "sales"}
               {tender.onAccount > 0 ? ` · ${formatRwf(tender.onAccount)} on account` : ""}
@@ -63,12 +63,12 @@ export function LedgerScreen() {
         ))}
         <Card className="p-4">
           <p className="text-sm text-muted">Settled</p>
-          <p className="mt-2 font-serif text-2xl tabular-nums">{formatRwf(data.settledTotal)}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(data.settledTotal)}</p>
           <p className="mt-1 text-xs text-muted">{formatRwf(data.onAccountTotal)} still on account</p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-muted">Money in minus money out</p>
-          <p className="mt-2 font-serif text-2xl tabular-nums">{formatRwf(data.moneyIn - data.moneyOut)}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">{formatRwf(data.moneyIn - data.moneyOut)}</p>
           <p className="mt-1 text-xs text-muted">
             {formatRwf(data.moneyIn)} in · {formatRwf(data.moneyOut)} out
           </p>

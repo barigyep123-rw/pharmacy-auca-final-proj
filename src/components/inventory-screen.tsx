@@ -291,8 +291,8 @@ function Shelf({
       {drugs.length === 0 ? (
         <p className="p-4 text-sm text-muted">No drugs match this view.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[52rem] text-sm">
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="scan-table w-full min-w-[52rem] text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-3 font-medium">Drug</th>

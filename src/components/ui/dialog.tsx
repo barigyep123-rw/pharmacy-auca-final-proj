@@ -17,7 +17,7 @@ export function DialogContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-pine-deep/45" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 max-h-[min(100%-2rem,46rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-line bg-card p-5 shadow-2xl",
+          "fixed left-1/2 top-1/2 z-50 max-h-[min(100%-2rem,46rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-line bg-card p-4 shadow-lg",
           size === "lg" ? "w-[min(100%-1.5rem,46rem)]" : "w-[min(100%-1.5rem,32rem)]",
           className,
         )}
@@ -40,7 +40,7 @@ export function DialogHeader({ className, ...props }: React.ComponentProps<"div"
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={cn("font-serif text-2xl tracking-tight", className)} {...props} />;
+  return <DialogPrimitive.Title className={cn("text-xl font-semibold tracking-tight", className)} {...props} />;
 }
 
 export function DialogDescription({

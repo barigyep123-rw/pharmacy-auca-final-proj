@@ -79,7 +79,7 @@ export function UnitsSettings() {
       <div className="grid gap-4 md:grid-cols-2">
         {(["base", "pack"] as const).map((group) => (
           <Card key={group} className="p-4">
-            <h2 className="font-serif text-xl">{group === "base" ? "Base units" : "Packs"}</h2>
+            <h2 className="font-semibold text-xl">{group === "base" ? "Base units" : "Packs"}</h2>
             <ul className="mt-3 divide-y divide-line text-sm">
               {units.filter((unit) => unit.kind === group).map((unit) => (
                 <li key={unit.id} className="flex items-center justify-between py-2">
